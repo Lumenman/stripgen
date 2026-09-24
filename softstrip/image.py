@@ -301,10 +301,10 @@ def find_strips(img):
     cols = [(x0, x1) for x0, x1 in runs(tall.any(0)) if x1 - x0 >= 3]
     boxes = []
     for k, (x0, x1) in enumerate(cols):
-        # pad by a quarter strip width, but never into the neighbour
-        left = x0 - cols[k - 1][1] if k else x0
-        right = cols[k + 1][0] - x1 if k + 1 < len(cols) else W - x1
-        pad_l, pad_r = min((x1 - x0) // 4, left // 2), min((x1 - x0) // 4, right // 2)
+        # pad by a quarter strip width, but only halfway to a neighbour (the image edge is no neighbour)
+        left = (x0 - cols[k - 1][1]) // 2 if k else x0
+        right = (cols[k + 1][0] - x1) // 2 if k + 1 < len(cols) else W - x1
+        pad_l, pad_r = min((x1 - x0) // 4, left), min((x1 - x0) // 4, right)
         ys = tall[:, x0:x1].any(1)
         ys[1:-1] |= ys[:-2] & ys[2:]
         for y0, y1 in runs(ys):  # strips stacked in one column
