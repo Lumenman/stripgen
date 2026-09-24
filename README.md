@@ -11,8 +11,9 @@ no hardware reader involved.
 - **Decoder:** reads clean renders, scans and photographs of single strips or whole pages. It finds
   the strips on a page, corrects tilt and paper distortion, repairs single-bit errors with the
   row parity, reassembles strip sequences and writes out the files.
-- **Tested** on original Cauzin strips scanned from Cauzin's own manuals, and on the 869-strip
-  corpus made with Distripitor (see [Validation](#validation)).
+- **Tested** on original Cauzin strips scanned from Cauzin's own manuals, on a strip printed by
+  Cauzin's own STRIPPER program, and on the 869-strip corpus made with Distripitor (see
+  [Validation](#validation)).
 
 ## Usage
 
@@ -33,16 +34,44 @@ python -m softstrip.test_softstrip                           # self-test
 
 Useful encoder options:
 
-- `--nibbles`: row width in 4-bit units.
-- `--cell` / `--row`: bit width and height in pixels.
-- `--dpi`: output resolution.
-- `--max-length`: longest strip in mm.
 - `--os` / `--ctype` / `--ftype`: operating system and file type codes from the specification.
 - `--exec`: sets the "run after reading" flag.
 - `--text`: converts a file to Cauzin generic text (CR LF line ends, `$1A` at the end).
+- `--max-length`: longest strip in mm.
 
-The defaults are 600 dpi, 10 nibbles and 0.169 × 0.254 mm bits. That gives a strip 15.9 mm wide
-holding about 4.6 KB in 240 mm, with 7 strips per A4 page.
+### Density
+
+Four options set the density. Everything else follows from them.
+
+| Option | Sets | Default |
+|---|---|---|
+| `--dpi` | resolution the strip is drawn at | 600 |
+| `--cell` | bit width in pixels | 4 → 0.169 mm |
+| `--row` | bit (row) height in pixels | 6 → 0.254 mm |
+| `--nibbles` | data nibbles per row, n | 10 |
+
+From these:
+- strip width = (8·n + 14) × bit width;
+- bytes per row = n / 2;
+- capacity = (n / 2) / row height × (strip length − about 5 mm of header);
+- the vertical sync code is derived from the row height.
+
+With the defaults the strip is 15.9 mm wide and holds about 4.6 KB in 240 mm, with 7 strips per
+A4 page. Choose the bit size with `--cell` / `--row`, then pick `--nibbles` so the strip stays
+about 16 mm wide, as Cauzin's strips are. The width is not checked.
+
+A bit is always a whole number of pixels at one dpi on both axes, so that printing does not
+distort it. Some historical sizes can therefore only be approximated. STRIPPER's 0.318 × 0.588 mm
+bit, for example, is `--cell 8 --row 14` (0.339 × 0.593 mm) at 600 dpi.
+
+For reference:
+
+| | Bit width | Row height | Bytes per strip |
+|---|---|---|---|
+| Cauzin STRIPPER on an Epson FX-80: HIGH / NORMAL / LOW | 0.318 mm | 0.470 / 0.588 / 0.706 mm | 1034 / 819 / 681 |
+| Cauzin magazine strips (offset print) | ≈ 0.26 mm | 0.38–0.51 mm | up to ≈ 1400 |
+| Cauzin's claim for laser printers | | | up to 3800 |
+| this encoder, defaults, 240 mm strip | 0.169 mm | 0.254 mm | ≈ 4600 |
 
 **Printing:** print at 100% / "actual size", never "fit to page", because scaling ruins the bit
 height. [examples/print_test_sheet.py](examples/print_test_sheet.py) makes an A4 page with seven
@@ -59,7 +88,8 @@ authoritative drawings. Everything below was checked against original strips.
 
 1. **Horizontal sync.** 28 scan steps of 0.0635 mm. It encodes the row width:
    nibbles = (white→black transitions + 4) / 2.
-2. **Vertical sync.** 56 scan steps. Every row repeats one byte, the row height (see Findings).
+2. **Vertical sync.** Every row repeats one byte, the row height (see Findings). The patent gives
+   56 scan steps, and this encoder uses that. Originals use 48–74 (see Findings).
 3. **Data rows.**
 
 **Row**, in bit cells:
@@ -96,7 +126,8 @@ decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System App
 1. **The vertical sync byte is the row height in 1/16 scan steps** (0.0635 mm per step), LSB first.
    The patent says "40 hex means four scans per bit", and FIG. 12 draws exactly `$40`. On
    original strips we found `$60 $63 $66 $71 $80`, and the measured row heights match these
-   values. Distripitor always writes `$80` (0.51 mm) whatever the actual height is (≈0.20 mm).
+   values. Cauzin's STRIPPER writes `$94` (9.25 steps = 0.587 mm) and prints 0.588 mm rows.
+   Distripitor always writes `$80` (0.51 mm) whatever the actual height is (≈0.20 mm).
 2. **Parity (FIG. 38):**
    - the left bit covers the odd data dibits, counting from 0;
    - the right bit covers the even data dibits;
@@ -120,7 +151,20 @@ decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System App
    - it hard-codes the file name, strip id and density.
 
    Its checksum, parity, row layout and horizontal sync are correct.
-8. **File names are untrusted input.** Names on strips can contain paths (the Distripitor corpus
+8. **Cauzin STRIPPER densities.** The Apple II STRIPPER for the Epson FX-80 keeps its LOW /
+   NORMAL / HIGH settings in a table of three 9-byte records at `$6070` of the disassembly.
+   - byte 0 is the row height in 1/216-inch paper-feed units (6 / 5 / 4);
+   - bytes 2–3 are the strip capacity (681 / 819 / 1034 bytes);
+   - bytes 4–5 are the vertical sync code (`$B2` / `$94` / `$77`).
+
+   The capacities scale exactly with the inverse row height, so all three settings print the
+   same row width, 5 nibbles of 3/240-inch cells, and the same strip length, about 8 inches.
+   The NORMAL setting is confirmed by the program's own print dump. The other two are read from
+   the table only. Bytes 1 and 6–8 are not decoded.
+9. **The vertical sync section has no fixed height.** It is 6 to 12 rows, 48–74 scan steps, even
+   for the same code (`$80` strips with 6 and with 9 rows). STRIPPER prints 8 rows (74 steps). The
+   reader only needs enough of it to lock on.
+10. **File names are untrusted input.** Names on strips can contain paths (the Distripitor corpus
    has `test-icons/…`), so the decoder keeps only the base name.
 
 ## Decoder design
@@ -149,13 +193,15 @@ decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System App
 | Distripitor strips from the thesis dataset (clean renders, fractional scaling, no margins) | 869 / 869 |
 | Original Cauzin strips, *Data Handling Manual* pp. 77–78 (whole pages, 600 dpi) | 4 / 4 |
 | Original Cauzin strips, *Application Notes* (whole pages, 600 dpi, auto-cropped) | 62 / 66 |
+| Cauzin STRIPPER print dump `HELLO-softstrip.fx80`, rendered with `tools/fx80_render.py` | 1 / 1 |
 | Own strips: A4 PDF → 600 dpi raster → page decode | byte-identical |
 
 - The four failures are all copies of the same Macintosh program strips. The same data decodes
   from other pages, so these copies are probably damaged in print or in the scan.
 - The original strips decode into working files. One is a MacBinary application `Convert`
   (type `APPL`, creator `CAUZ`). Six are MS-DOS utilities, including `cipher.bas`
-  "(C) 1986 Cauzin Systems Inc.".
+  "(C) 1986 Cauzin Systems Inc.". The STRIPPER dump decodes into `HELLO`, an Applesoft program
+  for Apple DOS 3.3.
 - A real print → scan run has not been done yet.
 - The self-test covers the following, with synthetic tilt, blur and noise:
   - round trips;
@@ -180,6 +226,7 @@ softstrip/          format.py  byte layout, checksum, multi-strip/multi-file bui
                     image.py   geometry, rendering, page layout, strip finding, decoding
                     __main__.py command line; test_softstrip.py self-test
 examples/           print_test_sheet.py
+tools/              fx80_render.py  renders an Epson FX-80 print dump to PNG (for STRIPPER output)
 experiments/        not tracked (.gitignore): third-party code, reference PDFs, scans, test output
 ```
 
@@ -188,6 +235,7 @@ belongs to its authors and the PDFs are large:
 
 - `distripitor/`: the original Distripitor sources and sample strips;
 - `Cauzin-Softstrip-Decoder-master/`: the thesis decoder;
+- `CauzinStripperEpson/`: the STRIPPER disassembly and print dump;
 - `references/`: the patents, the Cauzin documents and the thesis;
 - `tools/scan_pages.py`: the page scanner used for validation (needs PyMuPDF);
 - `printtest/`: output of the print test sheet.
@@ -217,8 +265,10 @@ belongs to its authors and the PDFs are large:
   modern one. Unfinished: one strip, fixed file name. <https://github.com/FozzTexx/Distripitor>
 - Michael Reimsbach, **Cauzin-Softstrip-Decoder** (2018). A Python decoder with algorithmic and CNN
   row decoding (TensorFlow 1.x). <https://github.com/MR2011/Cauzin-Softstrip-Decoder>
-- Chris Osborn, **CauzinStripperEpson**, an Apple II version of Cauzin's STRIPPER software. Not
-  consulted. <https://github.com/FozzTexx/CauzinStripperEpson>
+- Chris Osborn, **CauzinStripperEpson**. A disassembly of Cauzin's own STRIPPER v1.1A (1986) for the
+  Apple II and Epson FX-80, with a dump of its printer output. The program itself does not run
+  there, but its density table and its print dump are the only first-hand evidence of how Cauzin
+  generated strips. <https://github.com/FozzTexx/CauzinStripperEpson>
 
 ### Literature
 
@@ -236,7 +286,8 @@ belongs to its authors and the PDFs are large:
 
 The [Findings](#findings) above come from reading the specification and patents (including the
 drawings, which exist only as scanned images) and from decoding the strips in the two Cauzin
-manuals. The tools used are this decoder and `experiments/tools/scan_pages.py`.
+manuals and the STRIPPER print dump. The tools used are this decoder,
+`experiments/tools/scan_pages.py` and `tools/fx80_render.py`.
 
 ## License
 
@@ -245,4 +296,6 @@ own terms:
 - Distripitor is GPL-2.0-or-later;
 - Cauzin-Softstrip-Decoder is GPL-3.0;
 - the thesis is CC BY-NC-ND 4.0;
-- the Cauzin documents are the property of their owners.
+- the Cauzin documents and the STRIPPER program are the property of their owners.
+
+Softstrip is a trademark of Cauzin Systems. The patents cited above have long expired.
