@@ -1,0 +1,5 @@
+# third-party code, reference documents, scans and generated test sheets (see README)
+experiments/
+
+__pycache__/
+*.pyc
