@@ -51,15 +51,27 @@ def decode(args):
         crops = image.find_strips(Image.open(path)) or [Image.open(path)]
         for k, crop in enumerate(crops, 1):
             where = f'{path} #{k}' if len(crops) > 1 else path
-            try:
-                p, info = image.read(crop)
-                s = format.parse_strip(p)
-            except ValueError as ex:
-                print(f'{where}: skipped, {ex}', file=sys.stderr)
+            for turn in (0, 180):  # strips are sometimes printed upside down (e.g. on facing pages)
+                try:
+                    p, info = image.read(crop.rotate(turn) if turn else crop)
+                    s = format.parse_strip(p)
+                    break
+                except ValueError as ex:
+                    error = ex
+            else:
+                print(f'{where}: skipped, {error}', file=sys.stderr)
                 continue
             print(f'{where}: strip {s.strip_id!r} #{s.seq}, {info["nibbles"]} nibbles, '
-                  f'{len(info["fixed_rows"])} row(s) corrected', file=sys.stderr)
-            groups.setdefault(s.strip_id, {}).setdefault(s.seq, p)  # same strip scanned twice: keep one
+                  f'{len(info["fixed_rows"])} row(s) corrected'
+                  f'{", upside down" if turn else ""}'
+                  f'{", rows %s guessed by checksum" % info["guessed_rows"] if info["guessed_rows"] else ""}',
+                  file=sys.stderr)
+            seen = groups.setdefault(s.strip_id, {})
+            p = p[:5 + int.from_bytes(p[3:5], 'little')]  # drop rows past the strip's end
+            if s.seq in seen and seen[s.seq] != p:
+                print(f'{where}: a different strip {s.strip_id!r} #{s.seq} was read before, keeping that one; '
+                      f'sequences sharing an id must be decoded separately', file=sys.stderr)
+            seen.setdefault(s.seq, p)  # the same strip scanned twice counts once
     if not groups:
         raise ValueError('no readable strips')
     failed = False

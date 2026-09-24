@@ -5,10 +5,13 @@ Layout per US 4,782,221 / US 4,692,603 (FIG. 12, FIG. 38). One row, in bit cells
 n = nibbles per row. A dibit is black-white for 0, white-black for 1. Bytes go LSB first.
 Left parity = sum of odd data dibits (0-based) mod 2, right parity = sum of even ones.
 """
+import itertools
 import math
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+from .format import checksum
 
 SCAN_MM = 0.0635       # reader scan step
 HSYNC_MM = 28 * SCAN_MM
@@ -152,8 +155,16 @@ def row_centres(sig, y0):
 def read(img):
     """Decode one strip from a scan or render: grey or b/w, tilt up to a few degrees, some margin around.
 
-    Returns (payload, info). Bad rows do not raise; the strip checksum decides.
+    Returns (payload, info). Bad rows do not raise; the strip checksum decides. Anything that is not
+    a strip raises ValueError.
     """
+    try:
+        return _read(img)
+    except IndexError as ex:  # odd shapes from pictures or text that find_strips took for a strip
+        raise ValueError(f'not a readable strip ({ex})') from ex
+
+
+def _read(img):
     g = np.asarray(img.convert('L'))
     t = otsu(g)
     ink = g <= t
@@ -171,29 +182,58 @@ def read(img):
         ys = np.flatnonzero(ink.any(1))
     left = ink[ys].argmax(1).astype(float)
     a, b, keep = robust_line(ys, left)
-    top, bot = ys[keep].min(), ys[keep].max()
     right = np.median(ink.shape[1] - 1 - ink[ys[keep], ::-1].argmax(1))
     width = right - np.median(left[keep])
 
+    # the start bar is only straight on flat paper (not near a book's spine): follow its measured
+    # left edge, median-smoothed over about one strip width, instead of the fitted line
+    res = left - (a * ys + b)
+    near = np.abs(res) < 0.05 * width
+    if near.sum() < 10:
+        raise ValueError('no start bar found')
+    # the start bar is one unbroken line: its longest run of rows (small gaps bridged) is the strip,
+    # not text or marks that happen to line up with it
+    on = np.zeros(g.shape[0], bool)
+    on[ys[near]] = True
+    gap = max(int(0.1 * width), 1)  # bridges up to 20% of the width, e.g. a label arrow touching the bar
+    on = np.convolve(on, np.ones(2 * gap + 1), 'same') > 0
+    top, bot = max(runs(on), key=lambda r: r[1] - r[0])
+    top, bot = top + gap, bot - 1 - gap
+    k = int(width) // 2 * 2 + 1
+    smooth = np.median(np.lib.stride_tricks.sliding_window_view(np.pad(res[near], k // 2, mode='edge'), k), 1)
+    bend = np.interp(np.arange(g.shape[0]), ys[near], smooth)
+
+    def at(arr, y):
+        return arr[np.clip(np.round(y).astype(int), 0, len(arr) - 1)]
+
+    def edge(y):
+        return a * y + b + at(bend, y)
+
+
     # hsync: nibbles from white->black transitions, cell pitch from the two wide bars
-    hs = [ink[y, int(a * y + b):int(right) + 1] for y in range(top + int(0.02 * width), top + int(0.08 * width))]
-    counts = [len(runs(r)) for r in hs]
-    n = (max(set(counts), key=counts.count) + 4) // 2
-    if n < 4:
+    # the bars are vertical, so average the section's scan lines first: single lines of a blurred or
+    # JPEG scan break thin bars apart
+    hy = np.arange(top + int(0.02 * width), top + int(0.08 * width))
+    if not len(hy) or width < 2 * row_cells(4):
+        raise ValueError('no horizontal sync found')
+    x0 = np.clip(np.round(edge(hy)).astype(int), 0, None)
+    span = int(right) + 1 - x0.min()
+    lines = [ink[y, x:x + span] for y, x in zip(hy, x0)]
+    if any(len(line) < span for line in lines):
+        raise ValueError('no horizontal sync found')
+    prof = np.mean(lines, 0) > 0.5
+    rr = runs(prof)
+    n = (len(rr) + 4) // 2
+    if n < 4 or len(rr) != 2 * n - 4:
         raise ValueError('no horizontal sync found')
     w = row_cells(n)
-    fits = []
-    for y, r in zip(range(top + int(0.02 * width), top + int(0.08 * width)), hs):
-        rr = runs(r)
-        if len(rr) == 2 * n - 4:
-            pitch = (rr[-2][1] - rr[1][0]) / (w - 10)  # wide bars span cells 4 .. w-6
-            fits.append((pitch, int(a * y + b) + rr[1][0] - 4 * pitch - (a * y + b)))
-    if not fits:
-        raise ValueError('horizontal sync unreadable')
-    pitch, off = np.median(fits, 0)
+    pitch = (rr[-2][1] - rr[1][0]) / (w - 10)  # wide bars span cells 4 .. w-6
+    off = np.mean(x0 - edge(hy)) + rr[1][0] - 4 * pitch
 
     # darkness 0..1 and its integral image for box sampling
-    strip = g[top:bot + 1, int(b + off):int(right) + 1]
+    strip = g[top:bot + 1, max(int(b + off), 0):int(right) + 1]
+    if strip.size == 0:
+        raise ValueError('no strip found')
     black, white = np.percentile(strip, 2), np.percentile(strip, 98)
     d = np.clip((white - g.astype(float)) / max(white - black, 1), 0, 1)
     S = np.pad(d, ((1, 0), (1, 0))).cumsum(0).cumsum(1)
@@ -205,13 +245,16 @@ def read(img):
         y1 = np.clip(np.floor(y + hh).astype(int) + 1, y0 + 1, d.shape[0])
         return (S[y1, x1] - S[y0, x1] - S[y1, x0] + S[y0, x0]) / ((x1 - x0) * (y1 - y0))
 
-    def cx(i, y):  # cell centre, following any drift of the start bar
-        return a * y + b + off + (i + 0.5) * pitch
+    def cx(i, y):  # cell centre, following the start bar
+        return edge(y) + off + (i + 0.5) * pitch
 
     yy = np.arange(top, bot + 1)
     hw = max(pitch * 0.3, 0.5)
     in_hsync = np.minimum(box(cx(5, yy), yy, hw, 0), box(cx(6, yy), yy, hw, 0)) > 0.5
-    y_rows = top + int(np.argmin(in_hsync))
+    # the sync ends where its first run of scan lines ends (marks above the strip may come first)
+    start = int(np.argmax(in_hsync))
+    y_rows = top + start + int(np.argmin(in_hsync[start:]))
+
     # run a little past the start bar: its end can be shorter than the last row; extra rows are ignored by length
     yy = np.arange(y_rows, min(bot + int(0.15 * width), g.shape[0] - 1) + 1)
     sig = np.convolve(box(cx(3, yy), yy, hw, 0) - box(cx(4, yy), yy, hw, 0), np.ones(3) / 3, 'same')
@@ -220,41 +263,99 @@ def read(img):
     hh = max(row_h * 0.25, 0.5)
     ci = np.arange(w)[None, :]
 
-    def dibits(dx):
-        c = box(cx(ci, yc) + dx, yc, hw, hh)
+    def dibits(dx, dy=0.0, ds=0.0):
+        c = box(cx(ci, yc + dy) + dx + ds * (ci + 0.5) * pitch, yc + dy, hw, hh)
         return c[:, 6:10 + 8 * n:2] - c[:, 5:9 + 8 * n:2]  # >0: white-black = 1
 
-    # paper and print are never quite straight: per row, take the horizontal offset with the sharpest
-    # dibits, median-filtered over neighbouring rows since the drift is smooth. (Not vertically: the
-    # centre of the next row is just as sharp, so that search slips rows.)
-    dxs = np.linspace(-0.4, 0.4, 9) * pitch
-    best = dxs[np.array([np.abs(dibits(x)).sum(1) for x in dxs]).argmax(0)]
-    dx = np.array([np.median(best[max(k - 7, 0):k + 8]) for k in range(len(best))])[:, None]
-    v = dibits(dx)
-    bits, conf = v > 0, np.abs(v)
+    # paper and print are never quite straight, and curl near a page edge squeezes strips sideways:
+    # per row, take the horizontal offset and width correction with the sharpest dibits,
+    # median-filtered over neighbouring rows since both change smoothly. (Not vertically: the centre
+    # of the next row is just as sharp, so that search slips rows.)
+    dxs, dss = np.linspace(-0.4, 0.4, 9) * pitch, np.linspace(-0.012, 0.012, 13)
+    score = np.array([[np.abs(dibits(x, 0.0, s)).sum(1) for s in dss] for x in dxs])  # dx, ds, row
+    best = score.reshape(-1, len(yc)).argmax(0)
+
+    def along(a):
+        return np.array([np.median(a[max(j - 7, 0):j + 8]) for j in range(len(a))])[:, None]
+
+    dx, ds = along(dxs[best // len(dss)]), along(dss[best % len(dss)])
+    v = dibits(dx, 0.0, ds)
 
     # parity (US 4,692,603 FIG. 38): left bit covers odd data dibits, right bit the even ones.
-    # A failing group gets its least certain dibit flipped, as the patent's reader does.
-    fixed = []
     groups = [np.r_[0, 2:4 * n + 1:2], np.r_[1:4 * n + 1:2, 4 * n + 1]]
+
+    def parity_ok(b):
+        return np.all([b[:, grp].sum(1) % 2 == 0 for grp in groups], 0)
+
+    # a row failing parity may just be sampled off-centre: try it a little higher or lower.
+    # Rows that pass stay put, so no row can drift onto its neighbour.
+    bad = ~parity_ok(v > 0)
+    for f in (0.15, -0.15, 0.3, -0.3):
+        if not bad.any():
+            break
+        v2 = dibits(dx, f * row_h, ds)
+        moved = bad & parity_ok(v2 > 0)
+        v[moved] = v2[moved]
+        bad &= ~moved
+    bits, conf = v > 0, np.abs(v)
+
+    # still failing: flip the least certain dibit of the failing group, as the patent's reader does
+    fixes = []  # (row, group, flipped dibit)
     for k in range(len(bits)):
         for grp in groups:
             if bits[k, grp].sum() % 2:
                 j = grp[np.argmin(conf[k, grp])]
                 bits[k, j] ^= True
-                fixed.append(k)
-    rows = bits[:, 1:-1].astype(int).tolist()
+                fixes.append((k, grp, j))
 
-    # vertical sync rows repeat a nonzero byte; data sync is the first zero byte
-    first = [to_bytes(r[:8])[0] for r in rows]
-    v_rows = next((k for k, x in enumerate(first) if x == 0), len(rows))
-    code = max(set(first[:v_rows]), key=first[:v_rows].count) if v_rows else 0
-    payload = to_bytes([x for r in rows[v_rows:] for x in r])
+    def assemble(bits):
+        # vertical sync rows repeat one nonzero byte; the data sync is the first $00 after them
+        # (not before: a stray row above the sync may start with $00 too)
+        rows = bits[:, 1:-1]
+        first = np.packbits(rows[:, :8], axis=1, bitorder='little')[:, 0]
+        early = [int(x) for x in first[:40] if x]
+        code = max(set(early), key=early.count) if early else 0
+        v0 = int(np.argmax(first == code)) if code else 0
+        zero = np.flatnonzero(first[v0:] == 0)
+        v_rows = v0 + int(zero[0]) if len(zero) else len(rows)
+        return (code, v_rows - v0), v_rows, to_bytes(rows[v_rows:].ravel().tolist())
+
+    def checks(p):
+        length = int.from_bytes(p[3:5], 'little')
+        return len(p) >= 5 + length and checksum(p[6:5 + length]) == p[5]
+
+    first, v_rows, payload = assemble(bits)
+    used = len(bits)
     if len(payload) >= 5:  # rows past the strip's length field are paper, labels, the next strip...
         used = v_rows + math.ceil((5 + int.from_bytes(payload[3:5], 'little')) * 8 / (4 * n))
-        fixed = [k for k in fixed if k < used]
-    return payload, {'nibbles': n, 'rows': len(rows), 'vsync_rows': v_rows, 'vsync_code': code,
-                     'fixed_rows': sorted(set(fixed)), 'px_per_cell': round(float(pitch), 2),
+    fixes = [f for f in fixes if f[0] < used]
+
+    # parity cannot tell which dibit of a group was wrong, the strip checksum can: if it fails, try the
+    # next least certain dibits in the corrected rows, one or two changes, most likely first. A wrong
+    # guess passes an 8-bit checksum 1 time in 256, so the search stays short and is reported.
+    guessed = []
+    if fixes and payload[:3] == bytes(3) and not checks(payload):
+        cands = [(conf[k, a] - conf[k, j], i, a) for i, (k, grp, j) in enumerate(fixes)
+                 for a in grp[np.argsort(conf[k, grp])][:3] if a != j]
+        tries = [(c, [(i, a)]) for c, i, a in cands]
+        tries += [(c1 + c2, [(i1, a1), (i2, a2)]) for (c1, i1, a1), (c2, i2, a2)
+                  in itertools.combinations(cands, 2) if i1 != i2]
+        for _, change in sorted(tries, key=lambda t: t[0])[:64]:
+            trial = bits.copy()
+            for i, a in change:
+                k, _, j = fixes[i]
+                trial[k, j] ^= True
+                trial[k, a] ^= True
+            t_first, t_v, t_payload = assemble(trial)
+            if checks(t_payload):
+                bits, first, v_rows, payload = trial, t_first, t_v, t_payload
+                guessed = sorted(fixes[i][0] for i, _ in change)
+                break
+
+    code, vsync_rows = first
+    return payload, {'nibbles': n, 'rows': len(bits), 'vsync_rows': vsync_rows, 'vsync_code': code,
+                     'fixed_rows': sorted({f[0] for f in fixes}), 'guessed_rows': guessed,
+                     'px_per_cell': round(float(pitch), 2),
                      'px_per_row': round(float(row_h), 2), 'tilt_deg': round(tilt, 3)}
 
 

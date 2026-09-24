@@ -11,9 +11,9 @@ no hardware reader involved.
 - **Decoder:** reads clean renders, scans and photographs of single strips or whole pages. It finds
   the strips on a page, corrects tilt and paper distortion, repairs single-bit errors with the
   row parity, reassembles strip sequences and writes out the files.
-- **Tested** on original Cauzin strips scanned from Cauzin's own manuals, on a strip printed by
-  Cauzin's own STRIPPER program, and on the 869-strip corpus made with Distripitor (see
-  [Validation](#validation)).
+- **Tested** on original Cauzin strips scanned from three of Cauzin's own manuals (including two
+  complete six-strip programs), on a strip printed by Cauzin's own STRIPPER program, and on the
+  869-strip corpus made with Distripitor (see [Validation](#validation)).
 
 ## Usage
 
@@ -121,7 +121,8 @@ authoritative drawings. Everything below was checked against original strips.
 
 These are points the specification leaves open, or where existing tools differ from original
 strips. Each one was checked against the patents' drawings and against original Cauzin strips
-decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System Application Notes*.
+decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Application Notes* and
+*StripWare Stripper Software Manual*.
 
 1. **The vertical sync byte is the row height in 1/16 scan steps** (0.0635 mm per step), LSB first.
    The patent says "40 hex means four scans per bit", and FIG. 12 draws exactly `$40`. On
@@ -134,9 +135,9 @@ decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System App
    - each parity bit is the sum of its dibits mod 2.
 3. **Sequence byte:** bit 7 is set when more strips follow. This bit is not in the
    specification.
-   - Single strips read `$01` (45 seen).
+   - Single strips read `$01`.
    - Pairs read `$81`, then `$02`.
-   - No sequence of three or more strips was found, so `$82` for a middle strip is an inference.
+   - The two six-strip STRIPPER programs read `$81 $82 $83 $84 $85 $06`.
 4. **Odd row widths are real.** Originals use 5 and 7 nibbles. Vertical sync rows then repeat the
    code bits cut to the row length, the data starts on a new row, and bytes run across rows.
 5. **Original densities** range from 4 to 7 nibbles per row. Bits are about 0.26 mm wide or more,
@@ -164,27 +165,46 @@ decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System App
 9. **The vertical sync section has no fixed height.** It is 6 to 12 rows, 48–74 scan steps, even
    for the same code (`$80` strips with 6 and with 9 rows). STRIPPER prints 8 rows (74 steps). The
    reader only needs enough of it to lock on.
-10. **File names are untrusted input.** Names on strips can contain paths (the Distripitor corpus
-   has `test-icons/…`), so the decoder keeps only the base name.
+10. **From the STRIPPER manual** (*StripWare Stripper Software Manual*, 1986):
+    - a line holds "from two bytes to six bytes in increments of half a byte", that is 4–12 nibbles;
+    - a strip holds up to ten files;
+    - the Epson version offers NORMAL (819 bytes) and HIGH (1034 bytes), matching the table in
+      finding 8; the Imagewriter version has one density (914 bytes);
+    - the alignment dot is 1/8 inch across, its centre 1¼ inch left of the strip's centre line and
+      its bottom 3/32 inch above the strip; the alignment bar is 1/4 inch high, 1 9/32 inch left of
+      the centre line, its top 1/32 inch below the strip.
+11. **Printed layouts vary.** On facing pages Cauzin printed strips upside down. Two different
+    programs (the Epson and the Imagewriter STRIPPER) share the strip id `STRIPP` and the numbers
+    1–6, so the id alone does not identify a sequence.
+12. **File names are untrusted input.** Names on strips can contain paths (the Distripitor corpus
+    has `test-icons/…`), so the decoder keeps only the base name.
 
 ## Decoder design
 
 `softstrip/image.py`, `read()` for one strip and `find_strips()` for a page:
 
 1. **Threshold:** Otsu's method on the grey image.
-2. **Deskew:** a robust line fit to the left edge of the start bar, then rotation.
-3. **Row width and cell pitch:** the white→black transitions of the horizontal sync give the
-   number of nibbles, and the two wide bars give the cell pitch.
+2. **Deskew and extent:** a robust line fit to the left edge of the start bar, then rotation. The
+   strip runs over the longest stretch of rows where the start bar is present (gaps from label
+   arrows bridged), so text or marks that happen to line up with it are ignored. The measured
+   edge, median-smoothed, is followed where the strip is bent, as near a book's spine.
+3. **Row width and cell pitch:** the white→black transitions of the horizontal sync, averaged
+   over its scan lines, give the number of nibbles, and the two wide bars give the cell pitch.
 4. **Rows:** the checkerboard signal (dark cell minus light cell) is periodic over two rows. Its
    spectrum over the whole strip gives the mean row pitch. Its phase against that reference,
    averaged over about six rows (a lock-in amplifier), gives the local offset, so smudges are
    bridged and drift is followed.
-5. **Cells:** each cell is sampled as a box average. Each row gets a small horizontal shift that
-   maximises dibit contrast, median-filtered along the strip to follow bends in the paper.
-6. **Parity:** a group that fails parity has its least certain dibit flipped. The patent's reader
-   does the same.
-7. **Trust:** unreadable rows do not stop the decoder. The strip checksum decides whether the
-   strip is accepted.
+5. **Cells:** each cell is sampled as a box average. Each row gets a small horizontal shift and a
+   width correction of up to ±1.2% that maximise dibit contrast, median-filtered along the strip.
+   This follows paper that curls near a page edge and squeezes strips sideways.
+6. **Parity:** a row that fails parity is first resampled a little higher and lower; rows that
+   pass stay put, so no row can slip onto its neighbour. If it still fails, the least certain
+   dibit of the failing group is flipped. The patent's reader does the same.
+7. **Checksum:** if the strip checksum fails, a short search (at most 64 tries, most likely first)
+   tries the next least certain dibits in the corrected rows. A wrong guess passes an 8-bit
+   checksum 1 time in 256, so the search stays short and its rows are reported.
+8. **Trust:** unreadable rows do not stop the decoder, and anything that is not a strip is
+   rejected with a ValueError. The command line also tries each strip turned by 180°.
 
 ## Validation
 
@@ -192,12 +212,19 @@ decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System App
 |---|---|
 | Distripitor strips from the thesis dataset (clean renders, fractional scaling, no margins) | 869 / 869 |
 | Original Cauzin strips, *Data Handling Manual* pp. 77–78 (whole pages, 600 dpi) | 4 / 4 |
-| Original Cauzin strips, *Application Notes* (whole pages, 600 dpi, auto-cropped) | 62 / 66 |
+| Original Cauzin strips, *Application Notes* (whole pages, 600 dpi, auto-cropped) | 58 / 58 |
+| Original Cauzin strips, *StripWare Stripper Software Manual* (JPEG pages, 600 dpi) | 22 / 25 |
 | Cauzin STRIPPER print dump `HELLO-softstrip.fx80`, rendered with `tools/fx80_render.py` | 1 / 1 |
 | Own strips: A4 PDF → 600 dpi raster → page decode | byte-identical |
 
-- The four failures are all copies of the same Macintosh program strips. The same data decodes
-  from other pages, so these copies are probably damaged in print or in the scan.
+- "58 / 58" counts every strip `find_strips()` finds on those pages. An earlier count of "62 / 66"
+  was wrong: it counted rescanned pages twice.
+- The three failures in the STRIPPER manual are on p. 6 (a half-size reproduction of a
+  dot-matrix printout, 5 of its 7 strips decode) and on the title page (p. 3).
+- Both STRIPPER programs in that manual decode completely from their six strips each:
+  `STRIPPER.E` (22,657 bytes) and `STRIPPER.I` (22,777 bytes), Applesoft for Apple DOS 3.3. The
+  Epson one is about 90% identical to a different revision of the program in
+  [CauzinStripperEpson](https://github.com/FozzTexx/CauzinStripperEpson), with the same strings.
 - The original strips decode into working files. One is a MacBinary application `Convert`
   (type `APPL`, creator `CAUZ`). Six are MS-DOS utilities, including `cipher.bas`
   "(C) 1986 Cauzin Systems Inc.". The STRIPPER dump decodes into `HELLO`, an Applesoft program
@@ -214,7 +241,10 @@ decoded from scans of *Softstrip Data Handling Manual* and *Softstrip System App
 - Strips must be roughly upright, within a few degrees. A page scanned sideways has to be
   rotated first.
 - The decoder takes images, not PDFs. Scan to PNG or TIFF.
-- The value of a middle strip's sequence byte (`$82` or `$02`) is unverified.
+- Sequences that share a strip id (as Cauzin's two STRIPPER programs do) must be decoded
+  separately. The command line warns when it meets a different strip with an id and number it
+  has already read.
+- A strip in a half-size photocopy of dot-matrix print is at the limit: 5 of 7 decode.
 - Special key strips (strip type `$01`), the expansion bytes and Cauzin's compression (type `$10`)
   are not supported. They were never defined publicly.
 - No print → scan results yet, so the default bit size is a guess.
@@ -249,6 +279,10 @@ belongs to its authors and the PDFs are large:
   Application Notes*, *Softstrip Data Handling Manual* (1986), *The Art of Stripping* and other brochures
   in the Internet Archive collection <https://archive.org/details/CauzinSoftstrip>. The strips printed in
   the two manuals are this project's ground truth.
+- Cauzin Systems, *StripWare Stripper Software Manual* (1986): STRIPPER's densities and capacities,
+  the "Anatomy of a Data Strip" appendix, alignment mark dimensions, and the complete STRIPPER
+  programs as strips.
+  <http://mirrors.apple2.org.za/ftp.apple.asimov.net/documentation/hardware/io/cauzin_softstrip/Cauzin%20Softstrip%20StripWare%20Stripper%20Software%20Manual.pdf>
 - US 4,782,221, *Printed data strip including bit-encoded information and scanner control* (1988):
   strip anatomy, header sizes, vertical sync code, bit size ranges.
   <https://patents.google.com/patent/US4782221A/en>
@@ -285,7 +319,7 @@ belongs to its authors and the PDFs are large:
 ### Own analysis
 
 The [Findings](#findings) above come from reading the specification and patents (including the
-drawings, which exist only as scanned images) and from decoding the strips in the two Cauzin
+drawings, which exist only as scanned images) and from decoding the strips in three Cauzin
 manuals and the STRIPPER print dump. The tools used are this decoder,
 `experiments/tools/scan_pages.py` and `tools/fx80_render.py`.
 
