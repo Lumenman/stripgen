@@ -196,7 +196,9 @@ def _read(img):
     gap = max(int(0.1 * width), 1)  # bridges up to 20% of the width, e.g. a label arrow touching the bar
     on = np.convolve(on, np.ones(2 * gap + 1), 'same') > 0
     top, bot = max(runs(on), key=lambda r: r[1] - r[0])
-    top, bot = top + gap, bot - 1 - gap
+    # the bar's own rows in that run: not the run's ends less the gap, which the image edge clips
+    inside = ys[near][(ys[near] >= top) & (ys[near] < bot)]
+    top, bot = inside.min(), inside.max()
     k = int(width) // 2 * 2 + 1
     smooth = np.median(np.lib.stride_tricks.sliding_window_view(np.pad(res[near], k // 2, mode='edge'), k), 1)
     bend = np.interp(np.arange(g.shape[0]), ys[near], smooth)

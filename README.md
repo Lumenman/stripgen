@@ -61,8 +61,35 @@ A4 page. Choose the bit size with `--cell` / `--row`, then pick `--nibbles` so t
 about 16 mm wide, as Cauzin's strips are. The width is not checked.
 
 A bit is always a whole number of pixels at one dpi on both axes, so that printing does not
-distort it. Some historical sizes can therefore only be approximated. STRIPPER's 0.318 × 0.588 mm
-bit, for example, is `--cell 8 --row 14` (0.339 × 0.593 mm) at 600 dpi.
+distort it. Some historical sizes can therefore only be approximated.
+
+**Cauzin STRIPPER's densities.** STRIPPER printed on an Epson FX-80: 5 nibbles per row, cells of
+1/80 inch, rows of 4 / 5 / 6 paper-feed steps of 1/216 inch, strips about 8 inches long (finding 8).
+Both grids fit whole pixels only at 2160 dpi. At other resolutions the bit is rounded:
+
+| | 2160 dpi, exact | 1200 dpi | 600 dpi | STRIPPER |
+|---|---|---|---|---|
+| HIGH | `--cell 27 --row 40` | `--cell 15 --row 22` | `--cell 8 --row 11` | 0.318 × 0.470 mm, `$77`, 1034 bytes |
+| NORMAL | `--cell 27 --row 50` | `--cell 15 --row 28` | `--cell 8 --row 14` | 0.318 × 0.588 mm, `$94`, 819 bytes |
+| LOW | `--cell 27 --row 60` | `--cell 15 --row 33` | `--cell 8 --row 17` | 0.318 × 0.706 mm, `$B2`, 681 bytes |
+
+All of them take `--nibbles 5 --max-length 203.2` together with the `--dpi` of their column, for
+example:
+
+```sh
+python -m softstrip encode prog.bin -o prog --nibbles 5 --dpi 600 --cell 8 --row 14 --max-length 203.2
+```
+
+- At 2160 dpi the bit and the vertical sync code are STRIPPER's own.
+- At 1200 dpi the bit width is exact, and the rows are within 0.007 mm of STRIPPER's. The codes
+  are `$75` / `$95` / `$B0`.
+- At 600 dpi the bits are 0.339 mm wide (7% wider) and 0.466 / 0.593 / 0.720 mm high. The codes
+  are `$75` / `$95` / `$B5`.
+- A strip holds 1–3% more than STRIPPER's, because this encoder's header is shorter. Capacity
+  moves in steps of 2.5 bytes, so STRIPPER's exact figures cannot be hit.
+- Render at your printer's own resolution. A 2160 dpi image gets resampled by any printer, and
+  resampling hurts (see [Validation](#validation)). The 2160 dpi column is for exact renders, e.g.
+  to compare with an original.
 
 For reference:
 
