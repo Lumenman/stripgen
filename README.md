@@ -5,8 +5,8 @@ used to print programs and data (1985–1989). It writes files as printable stri
 back from scans. It needs only Python 3.9+, numpy and Pillow 10.1+. There is no machine learning and
 no hardware reader involved.
 
-- **Encoder:** one or more files become strip images (PNG) or a print-ready A4 / Letter PDF at true
-  size. The byte layout follows Cauzin's 1986 reader specification and the geometry follows the
+- **Encoder:** one or more files become strip images (PNG) or a print-ready PDF at true size, on
+  A3, A4, A5, B5, Letter, Legal or any page size. The byte layout follows Cauzin's 1986 reader specification and the geometry follows the
   patents. Long files are split over several strips.
 - **Decoder:** reads clean renders, scans and photographs of single strips or whole pages. It finds
   the strips on a page, corrects tilt and paper distortion, repairs single-bit errors with the
@@ -24,6 +24,7 @@ pip install numpy "pillow>=10.1"
 # files -> strips
 python -m softstrip encode prog.com -o prog                  # prog.png, or prog-1.png, prog-2.png...
 python -m softstrip encode a.bas b.txt -o disk --page A4     # disk.pdf: strips laid out on A4, numbered
+python -m softstrip encode a.bas -o disk --page 200x280 --margin 6   # any page size in mm, own margin
 python -m softstrip encode notes.txt -o notes --text --os 0x14 --id NOTES
 
 # strips -> files: strip images or whole scanned pages, in any order
@@ -39,6 +40,8 @@ Useful encoder options:
 - `--exec`: sets the "run after reading" flag.
 - `--text`: converts a file to Cauzin generic text (CR LF line ends, `$1A` at the end).
 - `--max-length`: longest strip in mm.
+- `--page`: A3, A4, A5, B5, Letter, Legal or `WxH` in mm. `--margin`: page margin in mm (default
+  12; most printers cannot print the outer 3–5 mm).
 - `--gap`: mm between strips on a `--page` (default 5, 8 strips on A4). The decoder keeps strips
   apart in a scan tilted up to 1° at 5 mm, 0.5° at 3 mm; at 8 mm, beyond 1.5°.
 

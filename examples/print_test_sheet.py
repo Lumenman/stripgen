@@ -34,7 +34,7 @@ for i, (c, r, n) in enumerate(variants, 1):
     labels.append(f'T{i} {g.cell_mm:.2f}x{g.row_mm:.2f}')
     print(f'T{i}: bit {g.cell_mm:.3f} x {g.row_mm:.3f} mm, {n} nibbles, {len(data)} bytes')
 
-pages = sheets(strips, labels, 600, 'A4')
+pages = sheets(strips, labels, 600, 'A4', gap_mm=8)  # the spacing of the printed sheet in README
 pages[0].save(os.path.join(out, 'test_sheet_A4.pdf'), save_all=True, append_images=pages[1:], resolution=600)
 # the same sheet as PNG: printed from an image viewer it can skip the PDF viewer's resampling
 for k, pg in enumerate(pages, 1):

@@ -15,7 +15,8 @@ from PIL import Image, ImageDraw, ImageFont
 SCAN_MM = 0.0635       # reader scan step
 HSYNC_MM = 28 * SCAN_MM
 VSYNC_MM = 56 * SCAN_MM
-PAGES_MM = {'A4': (210, 297), 'Letter': (215.9, 279.4)}
+PAGES_MM = {'A3': (297, 420), 'A4': (210, 297), 'A5': (148, 210), 'B5': (176, 250),
+            'Letter': (215.9, 279.4), 'Legal': (215.9, 355.6)}
 # 5 mm gap: neighbouring strips on a page stay apart in a scan tilted up to 1 degree (3 mm: 0.5 degree)
 PAGE_MARGIN_MM, STRIP_GAP_MM, LABEL_MM = 12, 5, 6
 MIN_STRIP_MM = 15  # find_strips needs 10+ blocks of ~1 mm; shorter strips get random rows past their data
@@ -364,13 +365,27 @@ def _read(img):
                      'px_per_row': round(float(row_h), 2), 'tilt_deg': round(tilt, 3)}
 
 
-def sheets(strips, labels, dpi, page='A4', gap_mm=STRIP_GAP_MM):
+def page_mm(page):
+    """(width, height) in mm of a page name from PAGES_MM (any case) or of 'WxH' in mm."""
+    for name, size in PAGES_MM.items():
+        if page.lower() == name.lower():
+            return size
+    try:
+        w, h = map(float, page.lower().split('x'))
+    except ValueError:
+        raise ValueError(f'page {page!r}: use one of {", ".join(PAGES_MM)} or WxH in mm, e.g. 200x280') from None
+    if w <= 0 or h <= 0:
+        raise ValueError(f'page {page!r}: sizes must be positive')
+    return w, h
+
+
+def sheets(strips, labels, dpi, page='A4', gap_mm=STRIP_GAP_MM, margin_mm=PAGE_MARGIN_MM):
     """Lay strip images side by side on pages at true size, a label under each."""
     px = lambda mm: round(mm / 25.4 * dpi)
-    pw, ph = map(px, PAGES_MM[page])
-    if gap_mm < 0:
-        raise ValueError('gap between strips must be >= 0')
-    margin, gap = px(PAGE_MARGIN_MM), px(gap_mm)
+    pw, ph = map(px, page_mm(page))
+    if gap_mm < 0 or margin_mm < 0:
+        raise ValueError('gap and margin must be >= 0')
+    margin, gap = px(margin_mm), px(gap_mm)
     sw = max(s.width for s in strips)
     if sw > pw - 2 * margin or max(s.height for s in strips) > ph - 2 * margin - px(LABEL_MM):
         raise ValueError(f'strips do not fit on {page}')

@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 from .format import File, build, checksum, parse
-from .image import Geometry, find_strips, read, sheets
+from .image import Geometry, find_strips, page_mm, read, sheets
 
 HERE = os.path.dirname(__file__)
 
@@ -70,6 +70,7 @@ def test():
     page, = sheets([g.render(p) for p in payloads], ['1', '2'], g.dpi, 'A4')
     assert sorted(len(parse([read(c)[0]])[1][0].data) for c in find_strips(page)) == [0, 1000]
     assert find_strips(Image.new('L', (500, 700), 255)) == []
+    assert page_mm('a4') == (210, 297) and page_mm('200x280') == (200, 280)
 
     # regular data looks the same a cell off; Letter's wider crop used to tip the column offsets over
     for data in (b'', b'abcd' * 250):

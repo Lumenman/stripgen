@@ -26,7 +26,7 @@ def encode(args):
     strip_id = args.id or os.path.splitext(files[0].name)[0].upper()
     max_length = args.max_length
     if args.page:  # strip + its white margin + label must fit between the page margins
-        max_length = min(max_length, image.PAGES_MM[args.page][1] - 2 * image.PAGE_MARGIN_MM - image.LABEL_MM
+        max_length = min(max_length, image.page_mm(args.page)[1] - 2 * args.margin - image.LABEL_MM
                          - 2 * g.margin * 25.4 / g.dpi)
     payloads = format.build(files, strip_id, g.capacity(max_length), args.os)
     print(f'{len(payloads)} strip(s), {g.width_mm:.1f} mm wide, bit {g.cell_mm:.3f} x {g.row_mm:.3f} mm, '
@@ -37,7 +37,7 @@ def encode(args):
     if args.page:
         sid = payloads[0][6:12].decode('ascii').strip()
         labels = [f'{sid} {seq}/{len(payloads)}' for seq in range(1, len(payloads) + 1)]
-        pages = image.sheets(strips, labels, g.dpi, args.page, args.gap)
+        pages = image.sheets(strips, labels, g.dpi, args.page, args.gap, args.margin)
         out = f'{args.output}.pdf'
         pages[0].save(out, save_all=True, append_images=pages[1:], resolution=g.dpi)
         print(f'{out}: {len(pages)} page(s) {args.page}; print at 100% / actual size', file=sys.stderr)
@@ -133,7 +133,10 @@ e.add_argument('--dpi', type=int, default=600)
 e.add_argument('--cell', type=int, default=4, help='bit width in pixels')
 e.add_argument('--row', type=int, default=6, help='bit height in pixels')
 e.add_argument('--max-length', type=float, default=240, help='max strip length, mm')
-e.add_argument('--page', choices=sorted(image.PAGES_MM), help='lay strips out on pages, write OUTPUT.pdf')
+e.add_argument('--page', help=f'lay strips out on pages, write OUTPUT.pdf: {", ".join(image.PAGES_MM)} '
+               'or WxH in mm, e.g. 200x280')
+e.add_argument('--margin', type=float, default=image.PAGE_MARGIN_MM,
+               help='page margin, mm (default %(default)s; most printers cannot print the outer 3-5 mm)')
 e.add_argument('--gap', type=float, default=image.STRIP_GAP_MM,
                help='mm between strips on a page (default %(default)s: reads from a scan tilted up to 1 degree)')
 e.set_defaults(func=encode)
