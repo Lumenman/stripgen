@@ -16,6 +16,7 @@ HSYNC_MM = 28 * SCAN_MM
 VSYNC_MM = 56 * SCAN_MM
 PAGES_MM = {'A4': (210, 297), 'Letter': (215.9, 279.4)}
 PAGE_MARGIN_MM, STRIP_GAP_MM, LABEL_MM = 12, 8, 6
+MIN_STRIP_MM = 15  # find_strips needs 10+ blocks of ~1 mm; shorter strips get blank rows past their data
 
 
 def row_cells(n):
@@ -67,6 +68,8 @@ class Geometry:
     def __init__(self, nibbles=10, dpi=600, cell_px=4, row_px=6, margin_px=16):
         if nibbles < 4:
             raise ValueError('nibbles must be >= 4')
+        if min(dpi, cell_px, row_px) <= 0 or margin_px < 0:
+            raise ValueError('dpi, cell and row sizes must be positive')
         self.n, self.dpi, self.cell_px, self.row_px, self.margin = nibbles, dpi, cell_px, row_px, margin_px
         mm = 25.4 / dpi
         self.cell_mm, self.row_mm = cell_px * mm, row_px * mm
@@ -78,9 +81,12 @@ class Geometry:
     def width_mm(self):
         return row_cells(self.n) * self.cell_mm
 
+    def data_rows(self, payload_len):
+        need = math.ceil((MIN_STRIP_MM - self.hsync_px * 25.4 / self.dpi) / self.row_mm) - self.vsync_rows
+        return max(math.ceil(payload_len * 8 / (4 * self.n)), need)
+
     def length_mm(self, payload_len):
-        rows = self.vsync_rows + math.ceil(payload_len * 8 / (4 * self.n))
-        return self.hsync_px * 25.4 / self.dpi + rows * self.row_mm
+        return self.hsync_px * 25.4 / self.dpi + (self.vsync_rows + self.data_rows(payload_len)) * self.row_mm
 
     def capacity(self, max_length_mm):
         """Payload bytes that fit in a strip of the given length."""
@@ -90,7 +96,7 @@ class Geometry:
     def render(self, payload):
         bpr = 4 * self.n
         bits = to_bits(payload)
-        bits += [0] * (-len(bits) % bpr)
+        bits += [0] * (self.data_rows(len(payload)) * bpr - len(bits))  # the reader stops at the length field
         # vsync rows repeat the code bits, cut to the row (odd n ends on half a byte, as on Cauzin's own strips)
         rows = [to_bits([self.code] * ((self.n + 1) // 2))[:bpr]] * self.vsync_rows
         rows += [bits[i:i + bpr] for i in range(0, len(bits), bpr)]
@@ -105,6 +111,8 @@ class Geometry:
 
 
 def otsu(g):
+    if g.min() == g.max():  # one grey level: all paper, no ink
+        return -1
     p = np.bincount(g.ravel(), minlength=256) / g.size
     w, mu = np.cumsum(p), np.cumsum(p * np.arange(256))
     with np.errstate(divide='ignore', invalid='ignore'):
@@ -324,8 +332,10 @@ def _read(img):
         # (not before: a stray row above the sync may start with $00 too)
         rows = bits[:, 1:-1]
         first = np.packbits(rows[:, :8], axis=1, bitorder='little')[:, 0]
-        early = [int(x) for x in first[:40] if x]
-        code = max(set(early), key=early.count) if early else 0
+        # the code is the first nonzero byte to repeat 3 rows running: file data can outnumber it in the top rows
+        same = (first[1:] == first[:-1]) & (first[1:] != 0)
+        run = np.flatnonzero(same[:-1] & same[1:])
+        code = int(first[run[0]]) if len(run) else 0
         v0 = int(np.argmax(first == code)) if code else 0
         zero = np.flatnonzero(first[v0:] == 0)
         v_rows = v0 + int(zero[0]) if len(zero) else len(rows)

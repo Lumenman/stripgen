@@ -60,6 +60,27 @@ def test():
     assert len(crops) == len(payloads) > 2, len(crops)
     assert parse([read(c)[0] for c in crops])[1][0].data == files[0].data
 
+    # file data repeating one byte outnumbers the vertical sync rows near the top
+    for b in (b'A', b'\xff'):
+        assert roundtrip([File('SAME', b * 1000)], Geometry()) == 1
+
+    # a short strip next to a long one on a page (render pads it to be found); a blank page has no strips
+    g = Geometry()
+    payloads = [build([File(n, d)], n, 10 ** 6)[0] for n, d in (('LONG', blob[:1000]), ('SHORT', b''))]
+    page, = sheets([g.render(p) for p in payloads], ['1', '2'], g.dpi, 'A4')
+    assert sorted(len(parse([read(c)[0]])[1][0].data) for c in find_strips(page)) == [0, 1000]
+    assert find_strips(Image.new('L', (500, 700), 255)) == []
+
+    # malformed sequences and directories are ValueErrors, not crashes
+    two = build([File('X', bytes(100))], 'X', 60)
+    head = two[0][6:16]  # strip #1 cut to its header, checksum valid: no directory at all
+    for bad in ([], two[1:], [bytes(3) + b'\x0b\x00' + bytes([checksum(head)]) + head]):
+        try:
+            parse(bad)
+            assert False, bad
+        except ValueError:
+            pass
+
     # sequence byte: bit 7 while more strips follow, as on Cauzin's strips ($81 $02, a lone strip $01)
     assert [p[12] for p in build([File('X', blob[:9000])], 'X', 4000)] == [0x81, 0x82, 0x03]
     assert build([File('X', b'x')], 'X', 4000)[0][12] == 0x01

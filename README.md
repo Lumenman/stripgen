@@ -213,7 +213,8 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
     programs (the Epson and the Imagewriter STRIPPER) share the strip id `STRIPP` and the numbers
     1–6, so the id alone does not identify a sequence.
 12. **File names are untrusted input.** Names on strips can contain paths (the Distripitor corpus
-    has `test-icons/…`), so the decoder keeps only the base name.
+    has `test-icons/…`), so the decoder keeps only the base name. It never overwrites a file:
+    if a name already exists, or two strips carry the same name, it writes nothing and stops.
 
 ## Decoder design
 
@@ -302,7 +303,7 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
   has already read.
 - A strip in a half-size photocopy of dot-matrix print is at the limit: 5 of 7 decode.
 - Special key strips (strip type `$01`), the expansion bytes and Cauzin's compression (type `$10`)
-  are not supported. They were never defined publicly.
+  are not supported: the decoder rejects them. They were never defined publicly.
 - Print → scan results come from one printer and one scanner. Another pair may need a larger bit.
 - The format's error detection is weak: parity per row and an 8-bit checksum per strip. A strip
   with several undetected errors could still pass the checksum 1 time in 256.

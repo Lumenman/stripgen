@@ -85,20 +85,29 @@ def parse_strip(p):
 def parse(payloads):
     """Return (os_type, [File], [Strip]) from the payloads of one strip sequence, any order."""
     strips = sorted(map(parse_strip, payloads), key=lambda s: s.seq)
+    if not strips or strips[0].seq != 1:
+        raise ValueError('strip #1 (the one with the directory) is missing')
+    if any(s.strip_type for s in strips):  # $01 special key, $10 compressed: never defined publicly
+        raise ValueError(f'strip type {max(s.strip_type for s in strips):#04x} is not supported')
     for a, b in zip(strips, strips[1:]):
         if b.strip_id != a.strip_id:
             raise ValueError(f'strip id mismatch: {a.strip_id!r} vs {b.strip_id!r}')
         if b.seq != a.seq + 1:
             raise ValueError(f'strip sequence gap: {a.seq} -> {b.seq}')
     d = strips[0].body
-    os_type, pos, entries = d[0], 2, []
-    for _ in range(d[1]):
-        ctype, ftype, size = d[pos], d[pos + 1], int.from_bytes(d[pos + 2:pos + 5], 'little')
-        end = pos + 5
-        while d[end] not in (0x00, 0xff):
-            end += 1
-        entries.append((File(d[pos + 5:end].decode('latin-1'), b'', ctype, ftype, d[end] == 0xff), size))
-        pos = end + 2 + d[end + 1]  # skip misc info block
+    try:
+        os_type, pos, entries = d[0], 2, []
+        for _ in range(d[1]):
+            ctype, ftype, size = d[pos], d[pos + 1], int.from_bytes(d[pos + 2:pos + 5], 'little')
+            end = pos + 5
+            while d[end] not in (0x00, 0xff):
+                end += 1
+            entries.append((File(d[pos + 5:end].decode('latin-1'), b'', ctype, ftype, d[end] == 0xff), size))
+            pos = end + 2 + d[end + 1]  # skip misc info block
+    except IndexError:
+        raise ValueError('directory runs past the end of strip #1') from None
+    if pos > len(d):  # misc info block overran
+        raise ValueError('directory runs past the end of strip #1')
     data = d[pos:] + b''.join(s.body for s in strips[1:])
     need = sum(size for _, size in entries)
     if len(data) < need:

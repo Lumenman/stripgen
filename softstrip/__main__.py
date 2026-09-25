@@ -73,8 +73,12 @@ def decode(args):
         return True
 
     for path in args.images:
-        img = Image.open(path)
-        crops = image.find_strips(img)
+        try:
+            img = Image.open(path)
+            crops = image.find_strips(img)
+        except (OSError, ValueError) as ex:
+            print(f'{path}: skipped, {ex}', file=sys.stderr)
+            continue
         read = [take(f'{path} #{k}' if len(crops) > 1 else path, crop) for k, crop in enumerate(crops, 1)]
         # nothing read: the image may be one strip whose cells are as big as find_strips' blocks
         # (a short strip, or a high-dpi render), which splits it apart
@@ -82,7 +86,7 @@ def decode(args):
             take(f'{path} (whole image)', img)
     if not groups:
         raise ValueError('no readable strips')
-    failed = False
+    failed, out = False, {}  # output name -> File
     for sid, by_seq in groups.items():
         try:
             os_type, files, strips = format.parse(list(by_seq.values()))
@@ -91,13 +95,20 @@ def decode(args):
             failed = True
             continue
         print(f'strip id {sid!r}, os {os_type:#04x}, {len(strips)} strip(s)', file=sys.stderr)
-        os.makedirs(args.dir, exist_ok=True)
         for f in files:
             name = os.path.basename(f.name.replace('\\', '/')) or 'unnamed'  # names come from the strip: no paths
-            with open(os.path.join(args.dir, name), 'wb') as out:
-                out.write(f.data)
+            if name in out:
+                raise ValueError(f'two files would be written as {name}; decode their strips separately')
+            out[name] = f
             print(f'  {name}: {len(f.data)} bytes, cauzin type {f.cauzin_type:#04x}, os type {f.os_filetype:#04x}'
                   f'{", executable" if f.execute else ""}', file=sys.stderr)
+    exist = [n for n in out if os.path.exists(os.path.join(args.dir, n))]
+    if exist:
+        raise ValueError(f'already in {args.dir}: {", ".join(exist)}; nothing written')
+    os.makedirs(args.dir, exist_ok=True)
+    for name, f in out.items():
+        with open(os.path.join(args.dir, name), 'xb') as o:
+            o.write(f.data)
     if failed:
         sys.exit(1)
 
