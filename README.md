@@ -5,9 +5,9 @@ used to print programs and data (1985–1989). It writes files as printable stri
 back from scans. It needs only Python 3.9+, numpy and Pillow 10.1+. There is no machine learning and
 no hardware reader involved.
 
-- **Encoder:** one or more files become strip images (PNG) or a print-ready PDF at true size, on
-  A3, A4, A5, B5, Letter, Legal or any page size. The byte layout follows Cauzin's 1986 reader specification and the geometry follows the
-  patents. Long files are split over several strips.
+- **Encoder:** one or more files become strip images (PNG) or a print-ready PDF at true size, on A3,
+  A4, A5, B5, Letter, Legal or any page size. The byte layout follows Cauzin's 1986 reader
+  specification and the geometry follows the patents. Long files are split over several strips.
 - **Decoder:** reads clean renders, scans and photographs of single strips or whole pages. It finds
   the strips on a page, corrects tilt and paper distortion, repairs single-bit errors with the
   row parity, reassembles strip sequences and writes out the files.
