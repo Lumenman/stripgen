@@ -297,6 +297,10 @@ def _read(img):
     ts = np.linspace(-1, 1, 41) * pitch
     con = np.array([np.abs(dibits(dx + t, 0.0, ds)).mean(0) for t in ts])  # shift, dibit column
     wgt = np.clip(con - (con.max(0) - 0.05), 0, None)
+    # regular data (blank rows, repeated bytes) has the same contrast a whole cell off: keep the peak nearest 0
+    for j in range(wgt.shape[1]):
+        s, e = min(runs(wgt[:, j] > 0), key=lambda r: max(ts[r[0]], -ts[r[1] - 1], 0))
+        wgt[:s, j] = wgt[e:, j] = 0
     shift[5:9 + 8 * n] = np.repeat((wgt * ts[:, None]).sum(0) / wgt.sum(0), 2)
     v = dibits(dx, 0.0, ds)
 

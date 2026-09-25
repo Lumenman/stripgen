@@ -71,6 +71,13 @@ def test():
     assert sorted(len(parse([read(c)[0]])[1][0].data) for c in find_strips(page)) == [0, 1000]
     assert find_strips(Image.new('L', (500, 700), 255)) == []
 
+    # regular data looks the same a cell off; Letter's wider crop used to tip the column offsets over
+    for data in (b'', b'abcd' * 250):
+        p, = build([File('REG', data)], 'REG', 10 ** 6)
+        page, = sheets([g.render(p)], ['1'], g.dpi, 'Letter')
+        assert parse([read(g.render(p))[0]])[1][0].data == data
+        assert parse([read(c)[0] for c in find_strips(page)])[1][0].data == data
+
     # malformed sequences and directories are ValueErrors, not crashes
     two = build([File('X', bytes(100))], 'X', 60)
     head = two[0][6:16]  # strip #1 cut to its header, checksum valid: no directory at all
