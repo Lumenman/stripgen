@@ -263,8 +263,10 @@ def _read(img):
     hh = max(row_h * 0.25, 0.5)
     ci = np.arange(w)[None, :]
 
+    shift = np.zeros(w)  # per cell, see below
+
     def dibits(dx, dy=0.0, ds=0.0):
-        c = box(cx(ci, yc + dy) + dx + ds * (ci + 0.5) * pitch, yc + dy, hw, hh)
+        c = box(cx(ci, yc + dy) + shift + dx + ds * (ci + 0.5) * pitch, yc + dy, hw, hh)
         return c[:, 6:10 + 8 * n:2] - c[:, 5:9 + 8 * n:2]  # >0: white-black = 1
 
     # paper and print are never quite straight, and curl near a page edge squeezes strips sideways:
@@ -279,6 +281,15 @@ def _read(img):
         return np.array([np.median(a[max(j - 7, 0):j + 8]) for j in range(len(a))])[:, None]
 
     dx, ds = along(dxs[best // len(dss)]), along(dss[best % len(dss)])
+
+    # on top of that, a printer driver resamples the page to the printer's own grid, so cell edges jump
+    # a pixel here and there, the same in every row. So each dibit column gets its own offset: the
+    # centroid of the peak of its contrast over all rows, within ±1 cell (one cell off, a pair straddles
+    # two dibits and has half the contrast).
+    ts = np.linspace(-1, 1, 41) * pitch
+    con = np.array([np.abs(dibits(dx + t, 0.0, ds)).mean(0) for t in ts])  # shift, dibit column
+    wgt = np.clip(con - (con.max(0) - 0.05), 0, None)
+    shift[5:9 + 8 * n] = np.repeat((wgt * ts[:, None]).sum(0) / wgt.sum(0), 2)
     v = dibits(dx, 0.0, ds)
 
     # parity (US 4,692,603 FIG. 38): left bit covers odd data dibits, right bit the even ones.

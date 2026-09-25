@@ -57,7 +57,8 @@ def decode(args):
                     s = format.parse_strip(p)
                     break
                 except ValueError as ex:
-                    error = ex
+                    if not turn:  # the upright error says more than the turned one
+                        error = ex
             else:
                 print(f'{where}: skipped, {error}', file=sys.stderr)
                 continue

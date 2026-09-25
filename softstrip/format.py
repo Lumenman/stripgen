@@ -72,6 +72,8 @@ def parse_strip(p):
     tail = p[6:5 + length]
     if len(tail) != length - 1:
         raise ValueError(f'strip truncated: length field {length}, have {len(tail) + 1}')
+    if len(tail) < 10:
+        raise ValueError(f'strip too short for its header: length field {length}')
     if checksum(tail) != p[5]:
         raise ValueError(f'checksum mismatch: strip {p[5]:#04x}, computed {checksum(tail):#04x}')
     body = tail[10:]
