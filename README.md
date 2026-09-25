@@ -39,6 +39,8 @@ Useful encoder options:
 - `--exec`: sets the "run after reading" flag.
 - `--text`: converts a file to Cauzin generic text (CR LF line ends, `$1A` at the end).
 - `--max-length`: longest strip in mm.
+- `--gap`: mm between strips on a `--page` (default 5, 8 strips on A4). The decoder keeps strips
+  apart in a scan tilted up to 1° at 5 mm, 0.5° at 3 mm; at 8 mm, beyond 1.5°.
 
 ### Density
 
