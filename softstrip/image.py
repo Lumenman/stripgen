@@ -5,13 +5,11 @@ Layout per US 4,782,221 / US 4,692,603 (FIG. 12, FIG. 38). One row, in bit cells
 n = nibbles per row. A dibit is black-white for 0, white-black for 1. Bytes go LSB first.
 Left parity = sum of odd data dibits (0-based) mod 2, right parity = sum of even ones.
 """
-import itertools
 import math
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .format import checksum
 
 SCAN_MM = 0.0635       # reader scan step
 HSYNC_MM = 28 * SCAN_MM
@@ -331,41 +329,15 @@ def _read(img):
         v_rows = v0 + int(zero[0]) if len(zero) else len(rows)
         return (code, v_rows - v0), v_rows, to_bytes(rows[v_rows:].ravel().tolist())
 
-    def checks(p):
-        length = int.from_bytes(p[3:5], 'little')
-        return len(p) >= 5 + length and checksum(p[6:5 + length]) == p[5]
-
     first, v_rows, payload = assemble(bits)
     used = len(bits)
     if len(payload) >= 5:  # rows past the strip's length field are paper, labels, the next strip...
         used = v_rows + math.ceil((5 + int.from_bytes(payload[3:5], 'little')) * 8 / (4 * n))
     fixes = [f for f in fixes if f[0] < used]
 
-    # parity cannot tell which dibit of a group was wrong, the strip checksum can: if it fails, try the
-    # next least certain dibits in the corrected rows, one or two changes, most likely first. A wrong
-    # guess passes an 8-bit checksum 1 time in 256, so the search stays short and is reported.
-    guessed = []
-    if fixes and payload[:3] == bytes(3) and not checks(payload):
-        cands = [(conf[k, a] - conf[k, j], i, a) for i, (k, grp, j) in enumerate(fixes)
-                 for a in grp[np.argsort(conf[k, grp])][:3] if a != j]
-        tries = [(c, [(i, a)]) for c, i, a in cands]
-        tries += [(c1 + c2, [(i1, a1), (i2, a2)]) for (c1, i1, a1), (c2, i2, a2)
-                  in itertools.combinations(cands, 2) if i1 != i2]
-        for _, change in sorted(tries, key=lambda t: t[0])[:64]:
-            trial = bits.copy()
-            for i, a in change:
-                k, _, j = fixes[i]
-                trial[k, j] ^= True
-                trial[k, a] ^= True
-            t_first, t_v, t_payload = assemble(trial)
-            if checks(t_payload):
-                bits, first, v_rows, payload = trial, t_first, t_v, t_payload
-                guessed = sorted(fixes[i][0] for i, _ in change)
-                break
-
     code, vsync_rows = first
     return payload, {'nibbles': n, 'rows': len(bits), 'vsync_rows': vsync_rows, 'vsync_code': code,
-                     'fixed_rows': sorted({f[0] for f in fixes}), 'guessed_rows': guessed,
+                     'fixed_rows': sorted({f[0] for f in fixes}),
                      'px_per_cell': round(float(pitch), 2),
                      'px_per_row': round(float(row_h), 2), 'tilt_deg': round(tilt, 3)}
 

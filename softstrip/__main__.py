@@ -64,8 +64,7 @@ def decode(args):
                 continue
             print(f'{where}: strip {s.strip_id!r} #{s.seq}, {info["nibbles"]} nibbles, '
                   f'{len(info["fixed_rows"])} row(s) corrected'
-                  f'{", upside down" if turn else ""}'
-                  f'{", rows %s guessed by checksum" % info["guessed_rows"] if info["guessed_rows"] else ""}',
+                  f'{", upside down" if turn else ""}',
                   file=sys.stderr)
             seen = groups.setdefault(s.strip_id, {})
             p = p[:5 + int.from_bytes(p[3:5], 'little')]  # drop rows past the strip's end

@@ -36,3 +36,6 @@ for i, (c, r, n) in enumerate(variants, 1):
 
 pages = sheets(strips, labels, 600, 'A4')
 pages[0].save(os.path.join(out, 'test_sheet_A4.pdf'), save_all=True, append_images=pages[1:], resolution=600)
+# the same sheet as PNG: printed from an image viewer it can skip the PDF viewer's resampling
+for k, pg in enumerate(pages, 1):
+    pg.save(os.path.join(out, f'test_sheet_A4{"_%d" % k if len(pages) > 1 else ""}.png'), dpi=(600, 600))

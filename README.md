@@ -75,8 +75,17 @@ For reference:
 
 **Printing:** print at 100% / "actual size", never "fit to page", because scaling ruins the bit
 height. [examples/print_test_sheet.py](examples/print_test_sheet.py) makes an A4 page with seven
-bit sizes, from 0.127 × 0.169 mm to 0.296 × 0.423 mm. Print it, scan it at 600 dpi, decode it,
-and compare the output to see what a given printer and scanner can manage.
+bit sizes, from 0.127 × 0.169 mm to 0.296 × 0.423 mm, as PDF and as a 600 dpi PNG. Print it,
+scan it at 600 dpi, decode it, and compare the output to see what a given printer and scanner
+can manage.
+
+The way to the printer matters as much as the bit size (see [Validation](#validation)):
+- print the PNG from a viewer that honours its dpi (IrfanView: original size, DPI from image);
+- the Windows photo viewer fits the page into the printable area, about 97%;
+- a PDF viewer at "actual size" kept the scale but read ten times worse than IrfanView;
+- driver extras such as edge smoothing or "enhanced quality" made the same sheet read worse.
+
+Check the scale with a ruler: at the defaults a full strip is about 242 mm long.
 
 ## The format
 
@@ -196,13 +205,16 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
    bridged and drift is followed.
 5. **Cells:** each cell is sampled as a box average. Each row gets a small horizontal shift and a
    width correction of up to ±1.2% that maximise dibit contrast, median-filtered along the strip.
-   This follows paper that curls near a page edge and squeezes strips sideways.
+   This follows paper that curls near a page edge and squeezes strips sideways. On top of that,
+   each dibit column gets its own offset, the centroid of its contrast peak over all rows: a
+   printer driver that resamples the page moves cell edges by a pixel here and there, the same in
+   every row, and at 3 px per cell that is half a cell.
 6. **Parity:** a row that fails parity is first resampled a little higher and lower; rows that
    pass stay put, so no row can slip onto its neighbour. If it still fails, the least certain
    dibit of the failing group is flipped. The patent's reader does the same.
-7. **Checksum:** if the strip checksum fails, a short search (at most 64 tries, most likely first)
-   tries the next least certain dibits in the corrected rows. A wrong guess passes an 8-bit
-   checksum 1 time in 256, so the search stays short and its rows are reported.
+7. **Checksum:** the strip checksum decides; nothing is guessed. An earlier search that tried
+   other dibits in the corrected rows until the checksum matched accepted a wrong strip on a real
+   scan: with 64 tries an 8-bit checksum passes a broken strip about one time in four.
 8. **Trust:** unreadable rows do not stop the decoder, and anything that is not a strip is
    rejected with a ValueError. The command line also tries each strip turned by 180°.
 
@@ -216,6 +228,7 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
 | Original Cauzin strips, *StripWare Stripper Software Manual* (JPEG pages, 600 dpi) | 22 / 25 |
 | Cauzin STRIPPER print dump `HELLO-softstrip.fx80`, rendered with `tools/fx80_render.py` | 1 / 1 |
 | Own strips: A4 PDF → 600 dpi raster → page decode | byte-identical |
+| Own strips: test sheet printed on a 600 dpi laser, scanned at 600 dpi (5 prints) | see below |
 
 - "58 / 58" counts every strip `find_strips()` finds on those pages. An earlier count of "62 / 66"
   was wrong: it counted rescanned pages twice.
@@ -229,7 +242,23 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
   (type `APPL`, creator `CAUZ`). Six are MS-DOS utilities, including `cipher.bas`
   "(C) 1986 Cauzin Systems Inc.". The STRIPPER dump decodes into `HELLO`, an Applesoft program
   for Apple DOS 3.3.
-- A real print → scan run has not been done yet.
+- Print → scan, the test sheet on one 600 dpi laser printer and one flatbed scanner at 600 dpi.
+  "OK" means the file is byte-identical to the original; the numbers are wrong bits before
+  parity correction.
+
+  | Print | Scale | T1 0.127×0.169 | T2 0.127×0.212 | T3 0.169×0.212 | T4–T7 ≥ 0.169×0.254 |
+  |---|---|---|---|---|---|
+  | PDF viewer, actual size | 100.0% | 1939 | 153 | OK (8) | OK |
+  | Windows photo viewer | 97% | 2257 | 261 | fails (9) | OK |
+  | IrfanView | 99.4% | 167 | 10 | OK (0) | OK |
+  | IrfanView, driver "enhanced quality", no text sharpening | 100.2% | 1446 | 101 | OK (2) | OK |
+  | the same, printed again | 100.2% | 1753 | 170 | fails (27) | OK |
+
+  - The default bit, 0.169 × 0.254 mm (T4, 4.6 KB per strip), reads on every print.
+  - T3 (5.5 KB per strip) reads when the print is not scaled.
+  - 3 px cells (T1, T2) are past what parity and an 8-bit checksum can carry: T2 at 10 wrong
+    bits still failed, on one row with two errors in one parity group.
+  - The per-column offsets took T2 on the PDF print from 1352 wrong bits to 153.
 - The self-test covers the following, with synthetic tilt, blur and noise:
   - round trips;
   - odd nibble counts;
@@ -247,7 +276,9 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
 - A strip in a half-size photocopy of dot-matrix print is at the limit: 5 of 7 decode.
 - Special key strips (strip type `$01`), the expansion bytes and Cauzin's compression (type `$10`)
   are not supported. They were never defined publicly.
-- No print → scan results yet, so the default bit size is a guess.
+- Print → scan results come from one printer and one scanner. Another pair may need a larger bit.
+- The format's error detection is weak: parity per row and an 8-bit checksum per strip. A strip
+  with several undetected errors could still pass the checksum 1 time in 256.
 
 ## Repository layout
 
