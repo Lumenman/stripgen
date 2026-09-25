@@ -1,4 +1,4 @@
-# softstrip
+# stripgen
 
 An encoder and decoder for the **Cauzin Softstrip**, the 2D barcode that 1980s computer magazines
 used to print programs and data (1985–1989). It writes files as printable strips and reads them
@@ -18,6 +18,7 @@ no hardware reader involved.
 ## Usage
 
 ```sh
+git clone https://github.com/Lumenman/stripgen && cd stripgen
 pip install numpy "pillow>=10.1"
 
 # files -> strips
@@ -384,11 +385,12 @@ manuals and the STRIPPER print dump. The tools used are this decoder,
 
 ## License
 
-No license has been chosen for this code yet. The third-party material in `experiments/` keeps its
-own terms:
+The code in this repository is MIT-licensed, see [LICENSE](LICENSE). The third-party material in
+`experiments/` (not part of this repository) keeps its own terms:
 - Distripitor is GPL-2.0-or-later;
 - Cauzin-Softstrip-Decoder is GPL-3.0;
 - the thesis is CC BY-NC-ND 4.0;
 - the Cauzin documents and the STRIPPER program are the property of their owners.
 
-Softstrip is a trademark of Cauzin Systems. The patents cited above have long expired.
+Softstrip is a trademark of Cauzin Systems; this project is not affiliated with Cauzin. The patents
+cited above have long expired.
