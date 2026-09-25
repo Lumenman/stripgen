@@ -64,7 +64,7 @@ def test():
     for b in (b'A', b'\xff'):
         assert roundtrip([File('SAME', b * 1000)], Geometry()) == 1
 
-    # a short strip next to a long one on a page (render pads it to be found); a blank page has no strips
+    # a short strip next to a long one on a page (render fills it out to be found); a blank page has no strips
     g = Geometry()
     payloads = [build([File(n, d)], n, 10 ** 6)[0] for n, d in (('LONG', blob[:1000]), ('SHORT', b''))]
     page, = sheets([g.render(p) for p in payloads], ['1', '2'], g.dpi, 'A4')

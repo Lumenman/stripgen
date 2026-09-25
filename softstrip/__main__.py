@@ -13,6 +13,9 @@ def num(s):
 
 def encode(args):
     g = image.Geometry(args.nibbles, args.dpi, args.cell, args.row)
+    if g.cell_mm < image.MIN_BIT_MM or g.row_mm < image.MIN_ROW_MM:
+        print(f'warning: bit {g.cell_mm:.3f} x {g.row_mm:.3f} mm is below the patent minimum '
+              f'{image.MIN_BIT_MM} x {image.MIN_ROW_MM} mm; a printed strip may not read back', file=sys.stderr)
     files = []
     for path in args.files:
         with open(path, 'rb') as f:

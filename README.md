@@ -51,6 +51,10 @@ Four options set the density. Everything else follows from them.
 | `--row` | bit (row) height in pixels | 6 → 0.254 mm |
 | `--nibbles` | data nibbles per row, n | 10 |
 
+The encoder warns below the patent's minimum bit, 0.15 mm wide and 0.25 mm high: such strips
+may not read back from print (see [Validation](#validation)). A strip is at least 15 mm long, so
+that the decoder can find it on a page; a shorter one is filled out with random bits past its data.
+
 From these:
 - strip width = (8·n + 14) × bit width;
 - bytes per row = n / 2;
@@ -99,6 +103,7 @@ For reference:
 | Cauzin STRIPPER on an Epson FX-80: HIGH / NORMAL / LOW | 0.318 mm | 0.470 / 0.588 / 0.706 mm | 1034 / 819 / 681 |
 | Cauzin magazine strips (offset print) | ≈ 0.26 mm | 0.38–0.51 mm | up to ≈ 1400 |
 | Cauzin's claim for laser printers | | | up to 3800 |
+| US 4,754,127, high density, 16 × 254 mm strip | 0.15 mm | 0.25 mm | up to 5850 |
 | this encoder, defaults, 240 mm strip | 0.169 mm | 0.254 mm | ≈ 4600 |
 
 **Printing:** print at 100% / "actual size", never "fit to page", because scaling ruins the bit
@@ -216,6 +221,16 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
 12. **File names are untrusted input.** Names on strips can contain paths (the Distripitor corpus
     has `test-icons/…`), so the decoder keeps only the base name. It never overwrites a file:
     if a name already exists, or two strips carry the same name, it writes nothing and stops.
+13. **From the strip generation patent** (US 4,754,127):
+    - it confirms the row layout above: 2 + 1 + 2 cells on the left, 2 + 3 on the right, 4 parity
+      cells, 14 in all;
+    - rows are 0.25–1.0 mm high and bits 0.15–0.46 mm wide. The high density bit is 0.15 × 0.25 mm,
+      and a 16 × 254 mm strip holds up to 5850 bytes;
+    - a strip shorter than planned is filled out with random dibits, or its rows are made taller;
+    - Cauzin printed strips on a dot matrix printer at full printer width and reduced them 6:1 to
+      12:1 photographically (8:1 preferred). Direct laser print is named as the alternative;
+    - dark bits are printed smaller by an "ink spread index" of −0.001" to +0.003", found by trial
+      for the ink and paper. This encoder has no such correction: laser prints read without one.
 
 ## Decoder design
 
@@ -287,6 +302,7 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
   - T3 (5.5 KB per strip) reads when the print is not scaled.
   - 3 px cells (T1, T2) are past what parity and an 8-bit checksum can carry: T2 at 10 wrong
     bits still failed, on one row with two errors in one parity group.
+  - T1–T3 are the only bits below the patent's minimum of 0.15 × 0.25 mm.
   - The per-column offsets took T2 on the PDF print from 1352 wrong bits to 153.
 - The self-test covers the following, with synthetic tilt, blur and noise:
   - round trips;
@@ -350,7 +366,8 @@ belongs to its authors and the PDFs are large:
   (header, vertical sync bytes), FIG. 38 (parity groups), the reader's parity correction.
   <https://patents.google.com/patent/US4692603A/en>
 - US 4,754,127, *Method and apparatus for transforming digitally encoded data into printed data strips*
-  (1988), which covers strip generation. Not consulted yet.
+  (1988): strip generation. It confirms the row layout and gives bit size limits, fill-out and ink
+  spread (finding 13).
   <https://patents.google.com/patent/US4754127A/en>
 
 ### Code

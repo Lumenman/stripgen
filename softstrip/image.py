@@ -1,11 +1,12 @@
 """Softstrip geometry: payload bytes <-> strip image.
 
-Layout per US 4,782,221 / US 4,692,603 (FIG. 12, FIG. 38). One row, in bit cells:
+Layout per US 4,782,221 / US 4,692,603 (FIG. 12, FIG. 38), confirmed by US 4,754,127. One row, in bit cells:
   start bar(2 black) space(1) checkerboard(2) left parity(2) data(8n) right parity(2) space(2) rack(2-3 black)
 n = nibbles per row. A dibit is black-white for 0, white-black for 1. Bytes go LSB first.
 Left parity = sum of odd data dibits (0-based) mod 2, right parity = sum of even ones.
 """
 import math
+import random
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -16,7 +17,8 @@ HSYNC_MM = 28 * SCAN_MM
 VSYNC_MM = 56 * SCAN_MM
 PAGES_MM = {'A4': (210, 297), 'Letter': (215.9, 279.4)}
 PAGE_MARGIN_MM, STRIP_GAP_MM, LABEL_MM = 12, 8, 6
-MIN_STRIP_MM = 15  # find_strips needs 10+ blocks of ~1 mm; shorter strips get blank rows past their data
+MIN_STRIP_MM = 15  # find_strips needs 10+ blocks of ~1 mm; shorter strips get random rows past their data
+MIN_BIT_MM, MIN_ROW_MM = 0.15, 0.25  # US 4,754,127: smallest bit width and row height Cauzin read reliably
 
 
 def row_cells(n):
@@ -96,7 +98,10 @@ class Geometry:
     def render(self, payload):
         bpr = 4 * self.n
         bits = to_bits(payload)
-        bits += [0] * (self.data_rows(len(payload)) * bpr - len(bits))  # the reader stops at the length field
+        # fill with random bits, as US 4,754,127 does: the reader stops at the length field, and blank rows
+        # would look the same a cell off to a reader that aligns on contrast. Seeded: same file, same image.
+        fill = random.Random(0)
+        bits += [fill.getrandbits(1) for _ in range(self.data_rows(len(payload)) * bpr - len(bits))]
         # vsync rows repeat the code bits, cut to the row (odd n ends on half a byte, as on Cauzin's own strips)
         rows = [to_bits([self.code] * ((self.n + 1) // 2))[:bpr]] * self.vsync_rows
         rows += [bits[i:i + bpr] for i in range(0, len(bits), bpr)]
