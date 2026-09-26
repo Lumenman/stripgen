@@ -26,6 +26,7 @@ python -m softstrip encode prog.com -o prog                  # prog.png, or prog
 python -m softstrip encode a.bas b.txt -o disk --page A4     # disk.pdf: strips laid out on A4, numbered
 python -m softstrip encode a.bas -o disk --page 200x280 --margin 6   # any page size in mm, own margin
 python -m softstrip encode notes.txt -o notes --text --os 0x14 --id NOTES
+python -m softstrip encode prog.com -o prog --page A4 --marks  # with marks for Cauzin's reader
 
 # strips -> files: strip images or whole scanned pages, in any order
 python -m softstrip decode page1.png page2.png -d out/
@@ -44,6 +45,33 @@ Useful encoder options:
   12; most printers cannot print the outer 3–5 mm).
 - `--gap`: mm between strips on a `--page` (default 5, 8 strips on A4). The decoder keeps strips
   apart in a scan tilted up to 1° at 5 mm, 0.5° at 3 mm; at 8 mm, beyond 1.5°.
+- `--marks`: alignment marks for Cauzin's hardware reader (off by default), for a PNG or a
+  `--page`. See [Reader alignment marks](#reader-alignment-marks).
+
+### Reader alignment marks
+
+Cauzin's reader is set down so that its loop fits over a black dot and its edge touches a short
+bar. The reader then finds the strip's exact position and tilt by itself; the marks only bring the
+strip into its view. `--marks` draws them to the STRIPPER manual's measurements (p. 25), from the
+strip's centre line and the edges of its ink:
+
+| | Size | Left of the centre line | From the strip |
+|---|---|---|---|
+| dot | 1/8″ (3.18 mm) across | 1¼″ (31.75 mm) to its centre | its bottom 3/32″ (2.38 mm) above the top |
+| bar | 1/4″ (6.35 mm) high, 0.5 mm wide | 1 9/32″ (32.54 mm) | its top 1/32″ (0.79 mm) below the bottom |
+
+- The label goes left of the bar, as in Cauzin's magazines ("C 2" for strip 2 of program C): the
+  strip id and number, or the id alone for a one-strip program.
+- The manual does not give the bar's width. STRIPPER prints it one pin wide, about 0.5 mm.
+- STRIPPER's own print (`HELLO-softstrip.fx80`) matches these to 0.2 mm, except the dot, which
+  sits 0.6 mm further left, so the reader tolerates at least that much.
+- On a page, a strip's marks reach under its left neighbour's column, past the strips' ends. So
+  with `--marks` all strips on a page are filled out to one length with random bits, as
+  US 4,754,127 does, and the first strip moves right to make room: 6 default strips fit on A4
+  instead of 8.
+- The encoder warns when the strip is outside the reader's range: 4–12 nibbles, bits up to
+  0.46 × 1.0 mm.
+- The decoder ignores the marks. They are not tried on a hardware reader.
 
 ### Density
 

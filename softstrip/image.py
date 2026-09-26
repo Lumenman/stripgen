@@ -9,7 +9,7 @@ import math
 import random
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 
 SCAN_MM = 0.0635       # reader scan step
@@ -21,6 +21,12 @@ PAGES_MM = {'A3': (297, 420), 'A4': (210, 297), 'A5': (148, 210), 'B5': (176, 25
 PAGE_MARGIN_MM, STRIP_GAP_MM, LABEL_MM = 12, 5, 6
 MIN_STRIP_MM = 15  # find_strips needs 10+ blocks of ~1 mm; shorter strips get random rows past their data
 MIN_BIT_MM, MIN_ROW_MM = 0.15, 0.25  # US 4,754,127: smallest bit width and row height Cauzin read reliably
+MAX_BIT_MM, MAX_ROW_MM, MAX_NIBBLES = 0.46, 1.0, 12  # the same patent and the STRIPPER manual: the reader's range
+# Alignment marks for Cauzin's reader (STRIPPER manual p. 25), from the strip's centre line and ink edges: a dot
+# above the top, a bar below the bottom. The bar's width is not given; STRIPPER prints one pin, about 0.5 mm.
+DOT_MM, DOT_X_MM, DOT_GAP_MM = 25.4 / 8, 25.4 * 5 / 4, 25.4 * 3 / 32
+BAR_W_MM, BAR_H_MM, BAR_X_MM, BAR_GAP_MM = 0.5, 25.4 / 4, 25.4 * 41 / 32, 25.4 / 32
+MARKS_TOP_MM, MARKS_BOTTOM_MM = DOT_GAP_MM + DOT_MM, BAR_GAP_MM + BAR_H_MM
 
 
 def row_cells(n):
@@ -97,13 +103,14 @@ class Geometry:
         rows = int((max_length_mm - self.hsync_px * 25.4 / self.dpi) / self.row_mm) - self.vsync_rows
         return rows * self.n // 2
 
-    def render(self, payload):
+    def render(self, payload, rows=0):
+        """Strip image; at least `rows` data rows (strips on a page with marks are made equally long)."""
         bpr = 4 * self.n
         bits = to_bits(payload)
         # fill with random bits, as US 4,754,127 does: the reader stops at the length field, and blank rows
         # would look the same a cell off to a reader that aligns on contrast. Seeded: same file, same image.
         fill = random.Random(0)
-        bits += [fill.getrandbits(1) for _ in range(self.data_rows(len(payload)) * bpr - len(bits))]
+        bits += [fill.getrandbits(1) for _ in range(max(self.data_rows(len(payload)), rows) * bpr - len(bits))]
         # vsync rows repeat the code bits, cut to the row (odd n ends on half a byte, as on Cauzin's own strips)
         rows = [to_bits([self.code] * ((self.n + 1) // 2))[:bpr]] * self.vsync_rows
         rows += [bits[i:i + bpr] for i in range(0, len(bits), bpr)]
@@ -387,26 +394,66 @@ def page_mm(page):
     return w, h
 
 
-def sheets(strips, labels, dpi, page='A4', gap_mm=STRIP_GAP_MM, margin_mm=PAGE_MARGIN_MM):
-    """Lay strip images side by side on pages at true size, a label under each."""
+def label_font(dpi):
+    return ImageFont.load_default(size=round(3 / 25.4 * dpi))
+
+
+def marks_left(label, dpi):
+    """How far the marks and their label reach left of the strip's centre line, px."""
+    px = dpi / 25.4
+    return max((DOT_X_MM + DOT_MM / 2) * px, (BAR_X_MM + BAR_W_MM) * px + label_font(dpi).getlength(label))
+
+
+def draw_marks(draw, strip, at, label, dpi):
+    """The reader's alignment dot and bar around a strip image pasted at `at`, the label left of the bar,
+    as in Cauzin's magazines ("C 2" beside strip 2 of program C)."""
+    px = lambda mm: mm / 25.4 * dpi
+    x0, y0, x1, y1 = ImageChops.invert(strip.convert('L')).getbbox()  # the ink, inside the strip's margin
+    cx, top, bottom = at[0] + (x0 + x1) / 2, at[1] + y0, at[1] + y1
+    r, dx = px(DOT_MM) / 2, cx - px(DOT_X_MM)
+    draw.ellipse((dx - r, top - px(DOT_GAP_MM) - 2 * r, dx + r, top - px(DOT_GAP_MM)), fill=0)
+    bx, by = cx - px(BAR_X_MM), bottom + px(BAR_GAP_MM)
+    draw.rectangle((bx - px(BAR_W_MM) / 2, by, bx + px(BAR_W_MM) / 2, by + px(BAR_H_MM)), fill=0)
+    draw.text((bx - px(BAR_W_MM), by + px(BAR_H_MM)), label, fill=0, font=label_font(dpi), anchor='rd')
+
+
+def with_marks(strip, label, dpi):
+    """One strip image widened to hold its alignment marks and label."""
+    px = lambda mm: math.ceil(mm / 25.4 * dpi)
+    left = max(math.ceil(marks_left(label, dpi) - strip.width / 2), 0)
+    img = Image.new('1', (left + strip.width, px(MARKS_TOP_MM) + strip.height + px(MARKS_BOTTOM_MM)), 1)
+    img.paste(strip, (left, px(MARKS_TOP_MM)))
+    draw_marks(ImageDraw.Draw(img), strip, (left, px(MARKS_TOP_MM)), label, dpi)
+    return img
+
+
+def sheets(strips, labels, dpi, page='A4', gap_mm=STRIP_GAP_MM, margin_mm=PAGE_MARGIN_MM, marks=False):
+    """Lay strip images side by side on pages at true size, a label under each, or with `marks` the
+    reader's alignment marks and the label beside them. Marks reach under the neighbouring strip's
+    column, past its ends, so strips with marks should be equally long."""
     px = lambda mm: round(mm / 25.4 * dpi)
     pw, ph = map(px, page_mm(page))
     if gap_mm < 0 or margin_mm < 0:
         raise ValueError('gap and margin must be >= 0')
     margin, gap = px(margin_mm), px(gap_mm)
     sw = max(s.width for s in strips)
-    if sw > pw - 2 * margin or max(s.height for s in strips) > ph - 2 * margin - px(LABEL_MM):
+    top, bottom = (px(MARKS_TOP_MM) + 1, px(MARKS_BOTTOM_MM) + 1) if marks else (0, px(LABEL_MM))
+    left = max(math.ceil(max(marks_left(t, dpi) for t in labels) - sw / 2), 0) if marks else 0
+    if left + sw > pw - 2 * margin or max(s.height for s in strips) > ph - 2 * margin - top - bottom:
         raise ValueError(f'strips do not fit on {page}')
-    per_page = (pw - 2 * margin + gap) // (sw + gap)
-    font = ImageFont.load_default(size=px(3))
+    per_page = (pw - 2 * margin - left + gap) // (sw + gap)
+    font = label_font(dpi)
     pages = []
     for i in range(0, len(strips), per_page):
         pg = Image.new('1', (pw, ph), 1)
         draw = ImageDraw.Draw(pg)
         for j, (s, text) in enumerate(zip(strips[i:i + per_page], labels[i:i + per_page])):
-            x = margin + j * (sw + gap)
-            pg.paste(s, (x, margin))
-            draw.text((x + s.width // 2, margin + s.height + px(1)), text, fill=0, font=font, anchor='mt')
+            x, y = margin + left + j * (sw + gap), margin + top
+            pg.paste(s, (x, y))
+            if marks:
+                draw_marks(draw, s, (x, y), text, dpi)
+            else:
+                draw.text((x + s.width // 2, y + s.height + px(1)), text, fill=0, font=font, anchor='mt')
         pages.append(pg)
     return pages
 

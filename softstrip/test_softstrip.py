@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 from .format import File, build, checksum, parse
-from .image import Geometry, find_strips, page_mm, read, sheets
+from .image import Geometry, find_strips, page_mm, read, sheets, with_marks
 
 HERE = os.path.dirname(__file__)
 
@@ -59,6 +59,15 @@ def test():
     crops = find_strips(scanned(page, rnd))
     assert len(crops) == len(payloads) > 2, len(crops)
     assert parse([read(c)[0] for c in crops])[1][0].data == files[0].data
+
+    # the same with the reader's alignment marks: dots, bars and labels reach under the neighbouring strip
+    rows = max(g.data_rows(len(p)) for p in payloads)
+    page, = sheets([g.render(p, rows) for p in payloads], [f'PAGE {i}' for i in range(1, len(payloads) + 1)],
+                   g.dpi, 'A4', marks=True)
+    crops = find_strips(scanned(page, rnd))
+    assert len(crops) == len(payloads), len(crops)
+    assert parse([read(c)[0] for c in crops])[1][0].data == files[0].data
+    assert parse([read(with_marks(g.render(payloads[0]), 'PAGE 1', g.dpi))[0]] + [read(c)[0] for c in crops[1:]])
 
     # file data repeating one byte outnumbers the vertical sync rows near the top
     for b in (b'A', b'\xff'):
