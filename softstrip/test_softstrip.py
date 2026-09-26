@@ -5,7 +5,7 @@ import random
 import numpy as np
 from PIL import Image, ImageFilter
 
-from .format import File, build, checksum, parse
+from .format import File, build, checksum, crc16, parse, parse_strip
 from .image import Geometry, find_strips, page_mm, read, sheets, with_marks
 
 HERE = os.path.dirname(__file__)
@@ -97,6 +97,17 @@ def test():
             assert False, bad
         except ValueError:
             pass
+
+    # optional CRC (3.4.10): CRC-16/ARC's check value; a multi-strip round trip; a wrong CRC only reports
+    assert crc16(b'123456789') == 0xbb3d
+    ps = build([File('C.BIN', blob[:9000])], 'CRC', 4000, crc=True)
+    assert all(p[14] == 0x80 for p in ps) and len(ps) == 3
+    _, out, strips = parse(ps)
+    assert out[0].data == blob[:9000] and all(s.crc_ok for s in strips)
+    bad = bytearray(ps[0])
+    bad[-1] ^= 1
+    bad[5] = checksum(bytes(bad[6:5 + int.from_bytes(bad[3:5], 'little')]))
+    assert parse_strip(bytes(bad)).crc_ok is False
 
     # sequence byte: bit 7 while more strips follow, as on Cauzin's strips ($81 $02, a lone strip $01)
     assert [p[12] for p in build([File('X', blob[:9000])], 'X', 4000)] == [0x81, 0x82, 0x03]

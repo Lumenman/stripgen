@@ -25,6 +25,17 @@ def checksum(data):
     return (0x100 - ((c & 0xff) + (c >> 8))) & 0xff
 
 
+def crc16(data):
+    """CRC-16/ARC (reflected polynomial $A001, start 0). The spec (3.4.10) reserves a CRC but never defined
+    its algorithm, so this is a guess: the common CRC-16 of the time, and the one cauzinTX uses."""
+    c = 0
+    for b in data:
+        c ^= b
+        for _ in range(8):
+            c = c >> 1 ^ (0xa001 if c & 1 else 0)
+    return c
+
+
 def directory(files, os_type):
     d = bytearray([os_type, len(files)])
     for f in files:
@@ -33,14 +44,15 @@ def directory(files, os_type):
     return bytes(d)
 
 
-def build(files, strip_id, capacity, os_type=0x00):
-    """Split files into strip payloads of at most `capacity` bytes each."""
+def build(files, strip_id, capacity, os_type=0x00, crc=False):
+    """Split files into strip payloads of at most `capacity` bytes each. With `crc`, each strip ends in a
+    CRC-16 of all its bytes after the checksum, flagged in the first software expansion byte (3.4.10)."""
     if not 1 <= len(files) <= 255:
         raise ValueError('need 1..255 files')
     sid = strip_id.encode('ascii')[:6].ljust(6)
     dirent = directory(files, os_type)
     data = b''.join(f.data for f in files)
-    room = capacity - HEADER_LEN
+    room = capacity - HEADER_LEN - 2 * crc
     first = room - len(dirent)
     if first < 0:
         raise ValueError(f'file directory ({len(dirent)} bytes) does not fit on the first strip')
@@ -52,7 +64,9 @@ def build(files, strip_id, capacity, os_type=0x00):
         # bit 7: more strips follow. Not in the spec; seen on original Cauzin strips ($81, $02 and a lone $01).
         # ponytail: a middle strip ($82 vs $02) is a guess, no 3-strip original found yet
         more = 0x80 if seq < len(chunks) else 0x00
-        tail = sid + bytes([seq | more, 0x00, 0x00, 0x00]) + (dirent if seq == 1 else b'') + chunk
+        tail = sid + bytes([seq | more, 0x00, 0x80 * crc, 0x00]) + (dirent if seq == 1 else b'') + chunk
+        if crc:
+            tail += crc16(tail).to_bytes(2, 'little')
         payloads.append(bytes(3) + (len(tail) + 1).to_bytes(2, 'little') + bytes([checksum(tail)]) + tail)
     return payloads
 
@@ -63,6 +77,7 @@ class Strip:
     seq: int
     strip_type: int
     body: bytes  # directory (first strip only) + file data
+    crc_ok: bool = None  # None: no CRC on the strip
 
 
 def parse_strip(p):
@@ -76,10 +91,10 @@ def parse_strip(p):
         raise ValueError(f'strip too short for its header: length field {length}')
     if checksum(tail) != p[5]:
         raise ValueError(f'checksum mismatch: strip {p[5]:#04x}, computed {checksum(tail):#04x}')
-    body = tail[10:]
-    if tail[8] & 0x80:  # CRC flag; algorithm was never defined, the two bytes are just dropped
-        body = body[:-2]
-    return Strip(tail[:6], tail[6] & 0x7f, tail[7], body)
+    body, crc_ok = tail[10:], None
+    if tail[8] & 0x80:  # CRC flag. The algorithm was never defined: a mismatch may be another guess, not an error
+        body, crc_ok = body[:-2], crc16(tail[:-2]) == int.from_bytes(tail[-2:], 'little')
+    return Strip(tail[:6], tail[6] & 0x7f, tail[7], body, crc_ok)
 
 
 def parse(payloads):

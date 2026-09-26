@@ -19,6 +19,14 @@ def encode(args):
     if args.marks and (g.n > image.MAX_NIBBLES or g.cell_mm > image.MAX_BIT_MM or g.row_mm > image.MAX_ROW_MM):
         print(f"warning: Cauzin's reader takes up to {image.MAX_NIBBLES} nibbles and bits up to "
               f'{image.MAX_BIT_MM} x {image.MAX_ROW_MM} mm', file=sys.stderr)
+    if args.marks and not image.MIN_WIDTH_MM <= g.width_mm <= image.MAX_WIDTH_MM:
+        print(f"warning: strip {g.width_mm:.1f} mm wide; Cauzin's strips are {image.MIN_WIDTH_MM:.1f}-"
+              f'{image.MAX_WIDTH_MM:.1f} mm (change --nibbles or --cell)', file=sys.stderr)
+    if args.max_length is None:  # the reader's window is 9 inches long
+        args.max_length = image.READER_MAX_MM if args.marks else 240
+    elif args.marks and args.max_length > image.READER_MAX_MM:
+        print(f"warning: strips up to {args.max_length} mm; Cauzin's reader takes {image.READER_MAX_MM} mm "
+              f'(9 inches) at most', file=sys.stderr)
     files = []
     for path in args.files:
         with open(path, 'rb') as f:
@@ -32,7 +40,7 @@ def encode(args):
         extra = image.MARKS_TOP_MM + image.MARKS_BOTTOM_MM + 2 * 25.4 / g.dpi if args.marks else image.LABEL_MM
         max_length = min(max_length, image.page_mm(args.page)[1] - 2 * args.margin - extra
                          - 2 * g.margin * 25.4 / g.dpi)
-    payloads = format.build(files, strip_id, g.capacity(max_length), args.os)
+    payloads = format.build(files, strip_id, g.capacity(max_length), args.os, args.crc)
     print(f'{len(payloads)} strip(s), {g.width_mm:.1f} mm wide, bit {g.cell_mm:.3f} x {g.row_mm:.3f} mm, '
           f'vsync code {g.code:#04x}', file=sys.stderr)
     for seq, p in enumerate(payloads, 1):
@@ -76,7 +84,8 @@ def decode(args):
             return False
         print(f'{where}: strip {s.strip_id!r} #{s.seq}, {info["nibbles"]} nibbles, '
               f'{len(info["fixed_rows"])} row(s) corrected'
-              f'{", upside down" if turn else ""}',
+              f'{", upside down" if turn else ""}'
+              f'{"" if s.crc_ok is None else ", CRC ok" if s.crc_ok else ", CRC differs (not CRC-16/ARC?)"}',
               file=sys.stderr)
         seen = groups.setdefault(s.strip_id, {})
         p = p[:5 + int.from_bytes(p[3:5], 'little')]  # drop rows past the strip's end
@@ -143,7 +152,7 @@ e.add_argument('--nibbles', type=int, default=10, help='data nibbles per row (>=
 e.add_argument('--dpi', type=int, default=600)
 e.add_argument('--cell', type=int, default=4, help='bit width in pixels')
 e.add_argument('--row', type=int, default=6, help='bit height in pixels')
-e.add_argument('--max-length', type=float, default=240, help='max strip length, mm')
+e.add_argument('--max-length', type=float, help='max strip length, mm (default 240; 228.6 with --marks)')
 e.add_argument('--page', help=f'lay strips out on pages, write OUTPUT.pdf: {", ".join(image.PAGES_MM)} '
                'or WxH in mm, e.g. 200x280')
 e.add_argument('--margin', type=float, default=image.PAGE_MARGIN_MM,
@@ -152,6 +161,10 @@ e.add_argument('--gap', type=float, default=image.STRIP_GAP_MM,
                help='mm between strips on a page (default %(default)s: reads from a scan tilted up to 1 degree)')
 e.add_argument('--marks', action='store_true',
                help="print alignment marks for Cauzin's reader (dot and bar) and a magazine-style label")
+e.add_argument('--crc', action='store_true',
+               help='end each strip in a CRC-16 of its bytes. Off by default: the spec reserves a CRC flag but '
+                    "never defined the algorithm, so CRC-16/ARC here is a guess, and Cauzin's own software may "
+                    'not expect the two extra bytes')
 e.set_defaults(func=encode)
 
 d = sub.add_parser('decode', help='strip image(s) -> files')

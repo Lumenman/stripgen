@@ -22,6 +22,8 @@ PAGE_MARGIN_MM, STRIP_GAP_MM, LABEL_MM = 12, 5, 6
 MIN_STRIP_MM = 15  # find_strips needs 10+ blocks of ~1 mm; shorter strips get random rows past their data
 MIN_BIT_MM, MIN_ROW_MM = 0.15, 0.25  # US 4,754,127: smallest bit width and row height Cauzin read reliably
 MAX_BIT_MM, MAX_ROW_MM, MAX_NIBBLES = 0.46, 1.0, 12  # the same patent and the STRIPPER manual: the reader's range
+READER_MAX_MM = 9 * 25.4  # longest strip the reader's window takes (cauzinTX; it notes 8.75" may be nearer)
+MIN_WIDTH_MM, MAX_WIDTH_MM = 0.620 * 25.4, 0.668 * 25.4  # Cauzin's published strips (per cauzinTX)
 # Alignment marks for Cauzin's reader (STRIPPER manual p. 25), from the strip's centre line and ink edges: a dot
 # above the top, a bar below the bottom. The bar's width is not given; STRIPPER prints one pin, about 0.5 mm.
 DOT_MM, DOT_X_MM, DOT_GAP_MM = 25.4 / 8, 25.4 * 5 / 4, 25.4 * 3 / 32

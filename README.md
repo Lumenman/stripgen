@@ -40,7 +40,8 @@ Useful encoder options:
 - `--os` / `--ctype` / `--ftype`: operating system and file type codes from the specification.
 - `--exec`: sets the "run after reading" flag.
 - `--text`: converts a file to Cauzin generic text (CR LF line ends, `$1A` at the end).
-- `--max-length`: longest strip in mm.
+- `--max-length`: longest strip in mm (default 240; with `--marks`, 228.6, the reader's 9 inches).
+- `--crc`: ends each strip in a CRC-16 (off by default). See [Optional CRC](#optional-crc).
 - `--page`: A3, A4, A5, B5, Letter, Legal or `WxH` in mm. `--margin`: page margin in mm (default
   12; most printers cannot print the outer 3–5 mm).
 - `--gap`: mm between strips on a `--page` (default 5, 8 strips on A4). The decoder keeps strips
@@ -70,7 +71,11 @@ strip's centre line and the edges of its ink:
   US 4,754,127 does, and the first strip moves right to make room: 6 default strips fit on A4
   instead of 8.
 - The encoder warns when the strip is outside the reader's range: 4–12 nibbles, bits up to
-  0.46 × 1.0 mm.
+  0.46 × 1.0 mm, and a width of 0.620–0.668 inch (15.7–17.0 mm) as on Cauzin's published strips.
+- The reader's window is about 9 inches long, so with `--marks` strips are 228.6 mm at most by
+  default, and a longer `--max-length` gets a warning. Both figures come from
+  [cauzinTX](https://github.com/DeathBeforeDecaf/cauzinTX), which notes that 8.75 inches may be
+  nearer the real window.
 - The decoder ignores the marks. They are not tried on a hardware reader.
 
 ### Density
@@ -187,10 +192,28 @@ authoritative drawings. Everything below was checked against original strips.
 | strip id | 6 | the same on every strip of a sequence |
 | sequence | 1 | 1, 2, 3…; bit 7 is set while more strips follow (see Findings) |
 | strip type | 1 | `$00` standard |
-| software expansion | 2 | bit 7 of the first byte is the CRC flag; the CRC was never defined, so it stays 0 |
+| software expansion | 2 | bit 7 of the first byte is the CRC flag (`--crc`), the second byte is reserved |
 | OS type, number of files | 1 + 1 | first strip only |
 | per file: Cauzin type, OS file type, length (3, LSB first), name, terminator (`$00` or `$FF` = executable), misc info (`$00`) | | the whole directory must fit on the first strip |
 | file data | | all files back to back, running across strips |
+| CRC | 2 | only with the CRC flag, LSB first |
+
+### Optional CRC
+
+The specification (3.4.10, 3.4.20) reserves a two-byte CRC at the end of a strip, flagged by bit 7
+of the first software expansion byte and counted in the length and the checksum, but says "the
+CRC algorithm has not yet been determined". `--crc` therefore uses a guess and is off by default:
+
+- CRC-16/ARC (reflected polynomial `$A001`, start 0, check value `$BB3D`), the common CRC-16 of the
+  time and the one [cauzinTX](https://github.com/DeathBeforeDecaf/cauzinTX) uses;
+- over every byte after the checksum up to the CRC, so the header and the directory are covered
+  as well as the data (cauzinTX covers file data only);
+- a host must drop the two bytes (3.4.20). Whether Cauzin's own programs did is unknown; if not,
+  a file read by them would come out two bytes longer.
+
+The decoder drops the two bytes whenever the flag is set, and reports "CRC ok" or "CRC differs".
+A difference is not an error: the strip may come from another guess, so the checksum decides.
+cauzinTX sets its flag in the second byte, against the specification; its strips are not read.
 
 ## Findings
 
@@ -359,8 +382,8 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
   separately. The command line warns when it meets a different strip with an id and number it
   has already read.
 - A strip in a half-size photocopy of dot-matrix print is at the limit: 5 of 7 decode.
-- Special key strips (strip type `$01`), the expansion bytes and Cauzin's compression (type `$10`)
-  are not supported: the decoder rejects them. They were never defined publicly.
+- Special key strips (strip type `$01`), the reader expansion bytes and Cauzin's compression
+  (type `$10`) are not supported: the decoder rejects them. They were never defined publicly.
 - Print → scan results come from one printer and one scanner. Another pair may need a larger bit.
 - **Unverified: 3 px cells (T1, T2, 0.127 mm bits).** They fail on the 600 dpi laser above with
   every print path, raster or vector: at that size its dots smear across cells, so this is the
