@@ -253,13 +253,15 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
    averaged over about six rows (a lock-in amplifier), gives the local offset, so smudges are
    bridged and drift is followed.
 5. **Cells:** each cell is sampled as a box average. Each row gets a small horizontal shift and a
-   width correction of up to ±1.2% that maximise dibit contrast, median-filtered along the strip.
+   width correction of up to ±1.2% that maximise dibit contrast, median-filtered along the strip
+   (over the strip's own rows only, not the paper past its end).
    This follows paper that curls near a page edge and squeezes strips sideways. On top of that,
    each dibit column gets its own offset, the centroid of its contrast peak over all rows: a
    printer driver that resamples the page moves cell edges by a pixel here and there, the same in
    every row, and at 3 px per cell that is half a cell.
-6. **Parity:** a row that fails parity is first resampled a little higher and lower; rows that
-   pass stay put, so no row can slip onto its neighbour. If it still fails, the least certain
+6. **Parity:** a row that fails parity is first resampled a little higher and lower, then at its
+   own horizontal shift instead of the filtered one (print can jump sideways over the last rows);
+   rows that pass stay put, so no row can slip onto its neighbour. If it still fails, the least certain
    dibit of the failing group is flipped. The patent's reader does the same.
 7. **Checksum:** the strip checksum decides; nothing is guessed. An earlier search that tried
    other dibits in the corrected rows until the checksum matched accepted a wrong strip on a real
@@ -302,6 +304,8 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
   | IrfanView | 99.4% | 167 | 10 | OK (0) | OK |
   | IrfanView, driver "enhanced quality", no text sharpening | 100.2% | 1446 | 101 | OK (2) | OK |
   | the same, printed again | 100.2% | 1753 | 170 | fails (27) | OK |
+  | Acrobat, actual size, raster PDF | 100.0% | 463 | 10 | OK (0) | OK |
+  | Acrobat, actual size, vector PDF (one rectangle per run) | 100.0% | 134 | 8 | OK (0) | OK |
 
   - The default bit, 0.169 × 0.254 mm (T4, 4.6 KB per strip), reads on every print.
   - T3 (5.5 KB per strip) reads when the print is not scaled.
@@ -309,6 +313,9 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
     bits still failed, on one row with two errors in one parity group.
   - T1–T3 are the only bits below the patent's minimum of 0.15 × 0.25 mm.
   - The per-column offsets took T2 on the PDF print from 1352 wrong bits to 153.
+  - A vector PDF (an experiment, not in the encoder) lets the printer rasterise at its own
+    resolution. It cuts T1's wrong bits by 3.5×, but T1 and T2 still fail and T3 reads either way, so the
+    encoder keeps writing raster PDFs.
 - The self-test covers the following, with synthetic tilt, blur and noise:
   - round trips;
   - odd nibble counts;
@@ -327,6 +334,10 @@ decoded from scans of *Softstrip Data Handling Manual*, *Softstrip System Applic
 - Special key strips (strip type `$01`), the expansion bytes and Cauzin's compression (type `$10`)
   are not supported: the decoder rejects them. They were never defined publicly.
 - Print → scan results come from one printer and one scanner. Another pair may need a larger bit.
+- **Unverified: 3 px cells (T1, T2, 0.127 mm bits).** They fail on the 600 dpi laser above with
+  every print path, raster or vector: at that size its dots smear across cells, so this is the
+  printer's limit. Whether they read needs a printer that holds 0.127 mm dots cleanly (e.g. a
+  1200 dpi laser or offset print).
 - The format's error detection is weak: parity per row and an 8-bit checksum per strip. A strip
   with several undetected errors could still pass the checksum 1 time in 256.
 

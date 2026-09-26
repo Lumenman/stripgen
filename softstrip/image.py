@@ -156,8 +156,10 @@ def row_centres(sig, y0):
     if len(edges) < 4:
         raise ValueError('no data rows found')
     p = np.median(np.diff(edges))
-    for span in (0.25, 0.01):  # coarse, then fine search of the period
-        ps = p * np.linspace(1 - span, 1 + span, 400)
+    # coarse, then fine search of the period. Noise adds zero crossings, so the median above errs low:
+    # a smeared 4 px row gave 3.0, and a ±25% window stopped at 3.75
+    for lo, hi in ((0.75, 1.5), (0.99, 1.01)):
+        ps = p * np.linspace(lo, hi, 400)
         p = ps[np.abs(np.exp(-1j * np.pi * np.outer(1 / ps, y)) @ sig).argmax()]
     win = int(6 * p) | 1
     z = np.convolve(sig * np.exp(-1j * np.pi * y / p), np.ones(win), 'same')
@@ -292,8 +294,11 @@ def _read(img):
     score = np.array([[np.abs(dibits(x, 0.0, s)).sum(1) for s in dss] for x in dxs])  # dx, ds, row
     best = score.reshape(-1, len(yc)).argmax(0)
 
+    # rows past the start bar are paper: keep them out of the median, or they drag the last rows off
+    last = max(int(np.searchsorted(yc[:, 0], bot, 'right')), 1)
+
     def along(a):
-        return np.array([np.median(a[max(j - 7, 0):j + 8]) for j in range(len(a))])[:, None]
+        return np.array([np.median(a[max(min(j, last - 1) - 7, 0):min(j + 8, last)]) for j in range(len(a))])[:, None]
 
     dx, ds = along(dxs[best // len(dss)]), along(dss[best % len(dss)])
 
@@ -319,11 +324,14 @@ def _read(img):
 
     # a row failing parity may just be sampled off-centre: try it a little higher or lower.
     # Rows that pass stay put, so no row can drift onto its neighbour.
+    # Or, where print jumps sideways over a row or two (as at a strip's end), the median above smooths
+    # the jump away: try the row's own offset too.
+    own = dxs[best // len(dss)][:, None], 0.0, dss[best % len(dss)][:, None]
     bad = ~parity_ok(v > 0)
-    for f in (0.15, -0.15, 0.3, -0.3):
+    for tried in [(dx, f * row_h, ds) for f in (0.15, -0.15, 0.3, -0.3)] + [own]:
         if not bad.any():
             break
-        v2 = dibits(dx, f * row_h, ds)
+        v2 = dibits(*tried)
         moved = bad & parity_ok(v2 > 0)
         v[moved] = v2[moved]
         bad &= ~moved
