@@ -400,6 +400,7 @@ softstrip/          format.py  byte layout, checksum, multi-strip/multi-file bui
                     __main__.py command line; test_softstrip.py self-test
 examples/           print_test_sheet.py
 tools/              fx80_render.py  renders an Epson FX-80 print dump to PNG (for STRIPPER output)
+                    run_corpus.py   decodes the corpus in experiments/, prints the Validation counts
 experiments/        not tracked (.gitignore): third-party code, reference PDFs, scans, test output
 ```
 
