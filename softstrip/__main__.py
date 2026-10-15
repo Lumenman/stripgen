@@ -177,8 +177,14 @@ d.add_argument('images', nargs='+', help='strip images or whole scanned pages, a
 d.add_argument('-d', '--dir', default='.', help='output directory')
 d.set_defaults(func=decode)
 
-args = p.parse_args()
-try:
-    args.func(args)
-except (ValueError, OSError) as ex:
-    sys.exit(f'error: {ex}')
+
+def main():
+    args = p.parse_args()
+    try:
+        args.func(args)
+    except (ValueError, OSError) as ex:
+        sys.exit(f'error: {ex}')
+
+
+if __name__ == '__main__':
+    main()

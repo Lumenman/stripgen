@@ -18,21 +18,20 @@ no hardware reader involved.
 ## Usage
 
 ```sh
-git clone https://github.com/Lumenman/stripgen && cd stripgen
-pip install numpy "pillow>=10.1"
+pip install git+https://github.com/Lumenman/stripgen   # installs numpy, Pillow and the softstrip command
 
 # files -> strips
-python -m softstrip encode prog.com -o prog                  # prog.png, or prog-1.png, prog-2.png...
-python -m softstrip encode a.bas b.txt -o disk --page A4     # disk.pdf: strips laid out on A4, numbered
-python -m softstrip encode a.bas -o disk --page 200x280 --margin 6   # any page size in mm, own margin
-python -m softstrip encode notes.txt -o notes --text --os 0x14 --id NOTES
-python -m softstrip encode prog.com -o prog --page A4 --marks  # with marks for Cauzin's reader
+softstrip encode prog.com -o prog                        # prog.png, or prog-1.png, prog-2.png...
+softstrip encode a.bas b.txt -o disk --page A4           # disk.pdf: strips laid out on A4, numbered
+softstrip encode a.bas -o disk --page 200x280 --margin 6 # any page size in mm, own margin
+softstrip encode notes.txt -o notes --text --os 0x14 --id NOTES
+softstrip encode prog.com -o prog --page A4 --marks      # with marks for Cauzin's reader
 
 # strips -> files: strip images or whole scanned pages, in any order
-python -m softstrip decode page1.png page2.png -d out/
+softstrip decode page1.png page2.png -d out/
 
-python -m softstrip encode -h                                # all options
-python -m softstrip.test_softstrip                           # self-test
+softstrip encode -h                                      # all options
+python -m softstrip.test_softstrip                       # self-test
 ```
 
 Useful encoder options:
@@ -120,7 +119,7 @@ All of them take `--nibbles 5 --max-length 203.2` together with the `--dpi` of t
 example:
 
 ```sh
-python -m softstrip encode prog.bin -o prog --nibbles 5 --dpi 600 --cell 8 --row 14 --max-length 203.2
+softstrip encode prog.bin -o prog --nibbles 5 --dpi 600 --cell 8 --row 14 --max-length 203.2
 ```
 
 - At 2160 dpi the bit and the vertical sync code are STRIPPER's own.
