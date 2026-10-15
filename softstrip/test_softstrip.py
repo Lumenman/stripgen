@@ -97,6 +97,12 @@ def test():
             assert False, bad
         except ValueError:
             pass
+    for name, sid in (('файл.txt', 'X'), ('X', 'ИД')):  # Softstrip names and ids are ASCII
+        try:
+            build([File(name, b'x')], sid, 4000)
+            assert False, (name, sid)
+        except ValueError:
+            pass
 
     # optional CRC (3.4.10): CRC-16/ARC's check value; a multi-strip round trip; a wrong CRC only reports
     assert crc16(b'123456789') == 0xbb3d
@@ -123,6 +129,8 @@ def test():
         _, files, _ = parse([data])
         assert info['nibbles'] == 8 and info['vsync_code'] == 0x80, info
         assert len(files) == 1 and files[0].data[:8] == b'\x89PNG\r\n\x1a\n', files[0].name
+    else:
+        print('skipped: Distripitor sample not present')
     print('ok')
 
 

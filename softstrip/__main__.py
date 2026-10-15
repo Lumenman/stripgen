@@ -32,9 +32,14 @@ def encode(args):
         with open(path, 'rb') as f:
             data = f.read()
         if args.text:  # Cauzin generic text: CR LF lines, $1A end of file (spec section 6)
-            data = data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n') + b'\x1a'
+            data = data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+            if not data.endswith(b'\x1a'):
+                data += b'\x1a'
         files.append(format.File(os.path.basename(path), data, args.ctype, args.ftype, args.exec))
     strip_id = args.id or os.path.splitext(files[0].name)[0].upper()
+    if len(strip_id) > 6:
+        print(f'warning: strip id {strip_id!r} cut to {strip_id[:6]!r}; strips sharing an id must be decoded '
+              f'separately (--id to choose)', file=sys.stderr)
     max_length = args.max_length
     if args.page:  # strip + its white margin + label (or marks) must fit between the page margins
         extra = image.MARKS_TOP_MM + image.MARKS_BOTTOM_MM + 2 * 25.4 / g.dpi if args.marks else image.LABEL_MM
@@ -120,7 +125,7 @@ def decode(args):
         print(f'strip id {sid!r}, os {os_type:#04x}, {len(strips)} strip(s)', file=sys.stderr)
         for f in files:
             name = os.path.basename(f.name.replace('\\', '/')) or 'unnamed'  # names come from the strip: no paths
-            if name in out:
+            if name.casefold() in (n.casefold() for n in out):  # one file on a case-insensitive disk
                 raise ValueError(f'two files would be written as {name}; decode their strips separately')
             out[name] = f
             print(f'  {name}: {len(f.data)} bytes, cauzin type {f.cauzin_type:#04x}, os type {f.os_filetype:#04x}'
@@ -175,5 +180,5 @@ d.set_defaults(func=decode)
 args = p.parse_args()
 try:
     args.func(args)
-except ValueError as ex:
+except (ValueError, OSError) as ex:
     sys.exit(f'error: {ex}')

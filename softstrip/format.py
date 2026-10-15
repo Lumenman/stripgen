@@ -39,6 +39,8 @@ def crc16(data):
 def directory(files, os_type):
     d = bytearray([os_type, len(files)])
     for f in files:
+        if not f.name.isascii():
+            raise ValueError(f'file name {f.name!r} is not ASCII, which Softstrip names must be')
         d += bytes([f.cauzin_type, f.os_filetype]) + len(f.data).to_bytes(3, 'little')
         d += f.name.encode('ascii') + bytes([0xff if f.execute else 0x00, 0x00])  # terminator, empty misc info
     return bytes(d)
@@ -49,6 +51,8 @@ def build(files, strip_id, capacity, os_type=0x00, crc=False):
     CRC-16 of all its bytes after the checksum, flagged in the first software expansion byte (3.4.10)."""
     if not 1 <= len(files) <= 255:
         raise ValueError('need 1..255 files')
+    if not strip_id.isascii():
+        raise ValueError(f'strip id {strip_id!r} is not ASCII; choose one with --id')
     sid = strip_id.encode('ascii')[:6].ljust(6)
     dirent = directory(files, os_type)
     data = b''.join(f.data for f in files)

@@ -98,6 +98,7 @@ def printtest():
     scans = sorted(glob.glob(os.path.join(EXP, 'printtest', 'ScanImage*.png')))
     if not scans:
         raise FileNotFoundError('no printtest scans')
+    originals = len(os.listdir(os.path.join(EXP, 'printtest', 'originals')))
     ok = total = 0
     for s in scans:
         _, read = read_page(Image.open(s).convert('L'))
@@ -111,7 +112,7 @@ def printtest():
                 with open(os.path.join(EXP, 'printtest', 'originals', f.name), 'rb') as o:
                     if o.read() == f.data:
                         same.append(f.name.split('.')[0])
-        ok, total = ok + len(same), total + 7
+        ok, total = ok + len(same), total + originals
         print(f'    {os.path.basename(s)}: {" ".join(sorted(same))}')
     return ok, total
 

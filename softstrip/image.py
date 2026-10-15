@@ -7,6 +7,7 @@ Left parity = sum of odd data dibits (0-based) mod 2, right parity = sum of even
 """
 import math
 import random
+import warnings
 
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFont
@@ -140,7 +141,9 @@ def robust_line(y, x):
     """Fit x = a*y + b ignoring outliers. Returns a, b, inlier mask."""
     keep = np.ones(len(x), bool)
     for _ in range(5):
-        a, b = np.polyfit(y[keep], x[keep], 1)
+        with warnings.catch_warnings():  # junk crops (one ink column) fit poorly; the checksum decides
+            warnings.filterwarnings('ignore', 'Polyfit may be poorly conditioned')
+            a, b = np.polyfit(y[keep], x[keep], 1)
         r = np.abs(x - (a * y + b))
         keep = r <= max(2.0, 3 * np.median(r[keep]))
     return a, b, keep
